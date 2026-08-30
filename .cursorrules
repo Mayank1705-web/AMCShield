@@ -1,0 +1,89 @@
+# Cursor Rules — Attack-Agnostic Generalization Robustness Project
+
+## Project Context
+This is an academic thesis project studying whether adversarial training against one
+attack type (PGD) generalizes to unseen attack types (FGSM, MIM, C&W, black-box
+surrogate-transfer), stratified across SNR levels, on RadioML 2016.10a. Reference
+`PRD.md`, `architecture.md`, `design.md`, and `phases.md` in the repo root before making
+structural suggestions. The core deliverable is the generalization-gap heatmap
+(attack type x SNR) — treat any change touching `evaluate.py` or `attacks.py` as
+high-stakes for this reason.
+
+## Stack (do not suggest alternatives without strong justification)
+- Python 3.10+, PyTorch (not TensorFlow)
+- numpy, scipy for signal preprocessing
+- torchattacks for FGSM, PGD, MIM, C&W (do not hand-implement attack math — use the
+  library's implementations for consistency with cited literature methodology)
+- pandas, matplotlib, seaborn for analysis/plots
+- No web framework, no database, no Docker, no foundation-model dependencies (explicitly
+  out of scope per PRD.md Section 2.2) — do not suggest adding infrastructure not already
+  in `requirements.txt`.
+
+## File/Module Boundaries (respect ownership — see phases.md team split)
+- `data_loader.py` / `preprocess.py` — Person A's files. Data parsing and splitting only.
+  SNR metadata must survive every transformation — never write code that drops it.
+- `model_baseline.py` — standard CNN architecture only, no training loop logic here.
+- `model_robust.py` — same base architecture as baseline; adversarial training logic
+  belongs in `train.py`, not duplicated here.
+- `model_surrogate.py` — must be architecturally DIFFERENT from `model_baseline.py`
+  (different depth/kernel sizes or a different model family). Never import or share
+  weights from `model_baseline.py` — it must only be trained on query-response pairs, to
+  keep the black-box threat model realistic.
+- `train.py` — the ONE shared generic training loop. Supports both plain supervised
+  training and PGD-adversarial training via a hook (e.g. `adversarial_fn=None`), not via
+  duplicated copies of the loop.
+- `attacks.py` — FGSM, PGD, MIM, C&W (all via `torchattacks`), plus the black-box
+  surrogate-transfer logic. Keep white-box attacks (gradients through the real target) and
+  the black-box path (gradients through the surrogate, examples transferred to the real
+  target) clearly separated in code — this distinction is easy to accidentally blur and
+  would invalidate the black-box claim if done wrong.
+- `evaluate.py` — accuracy-vs-SNR, confusion matrix, and the generalization-gap heatmap.
+  Always evaluate per-SNR-bucket, never only an aggregate accuracy number. Keep the
+  generalization-gap computation (robust model's PGD performance vs. its performance
+  against every unseen attack) in one clearly isolated, well-named function.
+- `utils.py` — seed control, plotting helpers, checkpoint I/O. Keep it dependency-light.
+- `config.yaml` — all hyperparameters live here, including per-attack epsilon values and
+  the C&W evaluation subset size. Never hardcode these inline in scripts.
+
+## Coding Conventions
+- Type hints on all function signatures.
+- Every function that trains or evaluates must accept a `config` dict/object rather than
+  individual hardcoded hyperparameters.
+- Always set and log a random seed (`utils.set_seed`) at the start of any training or
+  attack script.
+- Checkpoint models every few epochs, not just at the end — Colab free-tier GPU
+  disconnects mid-run are expected, not exceptional.
+- When writing attack code: operate on the model in `eval()` mode, set
+  `requires_grad=True` on the *input tensor*, never on model weights.
+- C&W attack is expensive — never run it on the full test set by default; respect
+  `cw_eval_subset_size` from `config.yaml`.
+- Preserve per-sample SNR metadata through every preprocessing and attack step.
+
+## What NOT to do
+- Do not suggest swapping PyTorch for TensorFlow or JAX.
+- Do not suggest adding a web API, frontend, or deployment layer — out of scope.
+- Do not suggest foundation-model-based approaches (RFPrompt, pretrained wireless
+  backbones), autoencoder-based signal purification, or dual-domain contrastive learning —
+  explicitly deferred per PRD.md Section 2.2, each is independently thesis-scale.
+- Do not suggest channel-aware/over-the-air attack modeling as core scope — it's an
+  optional stretch goal only (design.md Section 10), never a blocking dependency for the
+  main deliverable.
+- Do not commit large files: `data/raw/`, `data/processed/`, `checkpoints/*.pt` are
+  gitignored — never suggest tracking these in git.
+- Do not silently change the train/val/test split logic — it must stay stratified by
+  `(modulation, SNR)`.
+- Do not let `model_surrogate.py` share code/weights with `model_baseline.py` — this
+  would invalidate the black-box threat model.
+
+## Git Workflow Awareness
+- Three branches: `person-a-data`, `person-b-attacks`, `person-c-eval`, merging into
+  `main` at phase boundaries (see phases.md). When suggesting commits, keep them scoped
+  to the current branch owner's files.
+- Use `--no-ff` merges into `main`.
+
+## When Suggesting Code
+- Prefer small, testable functions over large scripts.
+- Flag (in comments or chat) any place where C&W evaluation or PGD-based adversarial
+  training will significantly increase runtime — both are known project risks.
+- If asked to add a new dependency or research direction, check it against the "explicitly
+  not pursued" list in PRD.md Section 2.2 before proceeding.
