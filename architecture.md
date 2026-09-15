@@ -49,6 +49,7 @@ checkpoints/baseline_model.pt   checkpoints/robust_model.pt   checkpoints/surrog
 | `attacks.py` | FGSM, PGD, MIM, C&W implementations (wraps `torchattacks`) + black-box surrogate-transfer logic | Trained model checkpoints |
 | `evaluate.py` | Accuracy-vs-SNR, confusion matrix, generalization-gap heatmap (attack type x SNR) | Trained models + `attacks.py` |
 | `utils.py` | Seed control, plotting helpers, checkpoint I/O | Used by all of the above |
+| `frontend/app.py` | Streamlit demo (clean vs. attacked prediction) + results dashboard | `results/metrics.json`, model checkpoints |
 | `config.yaml` | Central hyperparameters (batch size, epochs, lr, epsilon per attack, PGD/MIM steps, C&W eval subset size) | Read by `train.py`, `attacks.py` |
 
 ## 3. Data Flow Details
@@ -99,3 +100,42 @@ checkpoints/baseline_model.pt   checkpoints/robust_model.pt   checkpoints/surrog
 - `channel_sim.py` (not built) — would simulate Rayleigh/Rician fading between
   perturbation generation and classification, addressing the channel-aware attack gap.
   Documented in the report as a natural extension, not implemented in this timeline.
+
+## 7. Frontend Architecture (`frontend/app.py`)
+
+**Role:** thesis-defense presentation layer only — it validates nothing about the research
+question and is not part of the MVP (see phases.md Phase 7). It is a thin read-only client
+over artifacts the core pipeline already produces; it does not run training or attacks
+itself.
+
+```
+results/metrics.json ---\
+results/plots/       ----+---> frontend/app.py (Streamlit) ---> two tabs
+checkpoints/*.pt      ---/                                      |
+                                                                  +-- Demo tab: pick a
+                                                                  |   signal + attack type,
+                                                                  |   show clean vs.
+                                                                  |   attacked prediction
+                                                                  +-- Dashboard tab:
+                                                                      render SNR curves,
+                                                                      confusion matrices,
+                                                                      generalization-gap
+                                                                      heatmap
+```
+
+- **Demo tab dependencies:** loads `checkpoints/baseline_model.pt` and
+  `checkpoints/robust_model.pt` directly, runs a forward pass plus an on-the-fly attack
+  call into `attacks.py` — this is the one place the frontend touches model-inference code
+  directly rather than just reading precomputed results.
+- **Dashboard tab dependencies:** reads only `results/metrics.json` and pre-rendered files
+  in `results/plots/` — it does not re-run any computation. This keeps it decoupled from
+  the training/attack pipeline's runtime.
+- **Default rendering mode: static charts.** The Dashboard tab renders pre-generated
+  matplotlib/Plotly figures loaded from disk, not live interactive charts, by default (see
+  design.md Section 11 for the full rationale). Interactive Plotly (zoom/hover/filter) is
+  an optional Week 9 upgrade attempted only if earlier phases finished on schedule.
+- **Tricky integration point:** the Demo tab's live attack call means it needs the same
+  `config.yaml` epsilon/step values as the offline evaluation pipeline — if these drift out
+  of sync (e.g., someone changes `epsilon.fgsm` in `config.yaml` after `metrics.json` was
+  generated), the Demo tab's live results and the Dashboard tab's precomputed results will
+  disagree. Regenerate `metrics.json` any time `config.yaml` attack parameters change.

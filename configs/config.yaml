@@ -1,0 +1,91 @@
+# AMCShield configuration
+# RadioML 2018.01A
+# Central configuration for dataset, training, attacks and evaluation.
+
+seed: 42
+
+# ============================================================
+# Dataset
+# ============================================================
+
+dataset:
+  name: "RadioML2018.01A"
+
+  # Main HDF5 dataset
+  path: "data/raw/GOLD_XYZ_OSC.0001_1024.hdf5"
+
+  # Corrected modulation class mapping supplied with the dataset
+  classes_path: "data/raw/classes-fixed.json"
+
+  num_classes: 24
+
+  # RadioML 2018.01A signal format:
+  # Raw: (1024, 2)
+  # PyTorch: (2, 1024)
+  input_channels: 2
+  signal_length: 1024
+
+  # SNR values:
+  # -20, -18, ..., 28, 30 dB
+  snr_range: [-20, 30]
+  snr_step: 2
+
+
+# ============================================================
+# Dataset split
+# ============================================================
+
+# Split is stratified jointly by:
+# modulation + SNR
+
+train_size: 0.70
+val_size: 0.15
+test_size: 0.15
+
+
+# ============================================================
+# Training
+# ============================================================
+
+batch_size: 128
+epochs: 30
+learning_rate: 0.001
+
+
+# ============================================================
+# Adversarial training
+# ============================================================
+
+# Robust model uses PGD adversarial training only.
+adv_train_ratio: 0.5
+
+
+# ============================================================
+# Attack parameters
+# ============================================================
+
+epsilon:
+  fgsm: 0.02
+  pgd: 0.02
+  mim: 0.02
+
+pgd_steps: 10
+mim_steps: 10
+
+
+# ============================================================
+# C&W
+# ============================================================
+
+# C&W is computationally expensive.
+# Evaluate only on a fixed subset per SNR bucket.
+cw_eval_subset_size: 300
+
+
+# ============================================================
+# Black-box surrogate attack
+# ============================================================
+
+# Number of queries made to the baseline model
+# to generate labels for surrogate training.
+surrogate_query_budget: 5000

@@ -1,0 +1,13 @@
+numpy
+scipy
+pandas
+matplotlib
+seaborn
+torch
+torchattacks
+streamlit
+plotly
+jupyter
+pyyaml
+h5py
+scikit-learn

@@ -42,6 +42,13 @@ high-stakes for this reason.
   generalization-gap computation (robust model's PGD performance vs. its performance
   against every unseen attack) in one clearly isolated, well-named function.
 - `utils.py` — seed control, plotting helpers, checkpoint I/O. Keep it dependency-light.
+- `frontend/app.py` — Streamlit demo (Demo tab) + results dashboard (Dashboard tab). The
+  Demo tab may call into `attacks.py` and load model checkpoints directly for live
+  prediction. The Dashboard tab must only read `results/metrics.json` and
+  `results/plots/` — it must never re-run training or attacks itself. Default to
+  **static, pre-rendered charts** in the Dashboard tab; interactive Plotly is an optional
+  Week-9-only upgrade, never a blocking dependency for any other phase (see phases.md
+  Phase 7 and design.md Section 11).
 - `config.yaml` — all hyperparameters live here, including per-attack epsilon values and
   the C&W evaluation subset size. Never hardcode these inline in scripts.
 
@@ -61,7 +68,13 @@ high-stakes for this reason.
 
 ## What NOT to do
 - Do not suggest swapping PyTorch for TensorFlow or JAX.
-- Do not suggest adding a web API, frontend, or deployment layer — out of scope.
+- Do not suggest a frontend beyond `frontend/app.py`'s two defined tabs (Demo, Dashboard)
+  — no additional pages, no user auth, no backend API server. The frontend is a thin
+  presentation layer over existing artifacts, not a product.
+- Do not let the Dashboard tab re-run training or attacks — it reads `metrics.json` and
+  `results/plots/` only. Live computation belongs in the Demo tab exclusively.
+- Do not default the Dashboard tab to interactive Plotly — static charts are the committed
+  deliverable; interactive is an opt-in Week 9 stretch only.
 - Do not suggest foundation-model-based approaches (RFPrompt, pretrained wireless
   backbones), autoencoder-based signal purification, or dual-domain contrastive learning —
   explicitly deferred per PRD.md Section 2.2, each is independently thesis-scale.

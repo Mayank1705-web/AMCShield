@@ -1,6 +1,28 @@
-data/raw/* 
-data/processed/* 
-checkpoints/*.pt 
-__pycache__/ 
-*.pyc 
-.ipynb_checkpoints/ 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Dataset
+data/raw/*
+data/processed/*
+
+# Trained models
+checkpoints/*.pt
+checkpoints/*.pth
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

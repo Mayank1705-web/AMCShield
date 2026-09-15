@@ -26,23 +26,23 @@ an interesting early signal worth flagging, not a bug.
 
 ## Phase 1 — Data Pipeline (Week 1)
 - `data_loader.py`, `preprocess.py`
-- Owner: Person A
+- Owner: Mayank Ingole [EN24CS3T10017]
 - Output: clean, stratified, saved train/val/test splits
 
 ## Phase 2 — Baseline Model (Weeks 2-3)
 - `model_baseline.py`, `train.py` (shared loop, built by Person C)
-- Owner: Person A (model), Person C (training infra)
+- Owner: Mayank Ingole [EN24CS3T10017] (model), Person C (training infra)
 - Output: trained baseline checkpoint + accuracy-vs-SNR curve
 - **Merge to main at end of Week 3**
 
 ## Phase 3 — Attack Suite: PGD + FGSM (Week 4)
 - `attacks.py` — implement PGD (for training) and FGSM (first unseen-attack test)
-- Owner: Person B
+- Owner: Mayank Ingole [EN24CS3T10017]
 - Output: FGSM attack success rate against baseline, documented vulnerability
 
 ## Phase 4 — Robust Model: PGD Adversarial Training (Weeks 5-6)
 - `model_robust.py`, adversarial training integrated into `train.py`
-- Owner: Person B
+- Owner: Mayank Ingole [EN24CS3T10017]
 - Output: trained robust checkpoint, validated against PGD (sanity check from Phase 0)
 - **Merge to main at end of Week 6**
 
@@ -50,14 +50,14 @@ an interesting early signal worth flagging, not a bug.
 - `attacks.py` extended with MIM and C&W
 - `model_surrogate.py` built and trained on baseline query-response pairs
 - Black-box surrogate-transfer attack implemented
-- Owner: Person B (attacks/surrogate), Person C (evaluation integration)
+- Owner: Mayank Ingole [EN24CS3T10017] (attacks/surrogate), Person C (evaluation integration)
 - Output: full generalization-gap heatmap (attack type x SNR) for baseline and robust model
 - **This phase produces the project's core contribution — do not compress this to add
   stretch goals elsewhere.**
 
 ## Phase 6 — Documentation & Report (Week 8)
 - Methodology + results writeup, code cleanup, README, final report
-- Owner: Person C drives, A and B contribute their sections
+- Owner: Mayank Ingole [EN24CS3T10017] drives, A and B contribute their sections
 - Output: final thesis/report document, clean GitHub repo, explicit gap-analysis framing
 
 ## Phase 7 — Frontend Demo & Dashboard (rides alongside Phases 1-7, polished in Week 9)
