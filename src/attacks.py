@@ -239,26 +239,38 @@ def cw_attack(
     model,
     x: torch.Tensor,
     y: torch.Tensor,
-    subset_size: Optional[int] = None,
 ) -> torch.Tensor:
     """
-    Carlini & Wagner attack.
+    Carlini & Wagner attack for RadioML RF/IQ signals.
 
-    C&W is computationally expensive.
+    Input:
+        x -> RF/IQ tensor with shape (B, 2, 1024)
+        y -> class labels with shape (B,)
 
-    subset_size should normally be specified during evaluation.
+    Important:
+        - No subset selection is performed here.
+        - No [0, 1] clipping is performed.
+        - No artificial epsilon/L-infinity projection is applied.
+        - The C&W optimizer is allowed to determine the perturbation.
+        - The returned adversarial examples preserve the RF tensor
+          shape (B, 2, 1024).
+        - Returned tensor is detached from the computation graph.
     """
 
     x, y = _prepare(model, x, y)
 
-    if subset_size is not None:
-        subset_size = min(
-            subset_size,
-            x.shape[0],
+    # Preserve the expected RF/IQ input shape.
+    if x.ndim != 3:
+        raise ValueError(
+            f"Expected RF input with 3 dimensions "
+            f"(B, 2, 1024), got {tuple(x.shape)}"
         )
 
-        x = x[:subset_size]
-        y = y[:subset_size]
+    if x.shape[1] != 2 or x.shape[2] != 1024:
+        raise ValueError(
+            f"Expected RF input shape (B, 2, 1024), "
+            f"got {tuple(x.shape)}"
+        )
 
     attack = torchattacks.CW(
         model,
@@ -268,13 +280,20 @@ def cw_attack(
         lr=0.01,
     )
 
-    # torchattacks C&W may apply image-domain assumptions.
-    # Keep this isolated and only use it on the explicitly
-    # requested evaluation subset.
+    # C&W is intentionally NOT followed by _project_linf().
+    # Unlike FGSM/PGD/MIM, this attack is not artificially
+    # constrained to epsilon=0.02 here.
     adv_x = attack(x, y)
 
-    return adv_x.detach()
+    # Ensure the attack did not alter the RF tensor shape.
+    if adv_x.shape != x.shape:
+        raise RuntimeError(
+            f"C&W changed the RF tensor shape: "
+            f"input={tuple(x.shape)}, "
+            f"adversarial={tuple(adv_x.shape)}"
+        )
 
+    return adv_x.detach()
 
 # ============================================================
 # BLACK-BOX TRANSFER

@@ -11,3 +11,4 @@ jupyter
 pyyaml
 h5py
 scikit-learn
+tqdm

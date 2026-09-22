@@ -4,128 +4,113 @@ Owner: Mayank Ingole [EN24CS3T10017]
 Phase: 1
 
 Responsibility:
-    Load RadioML 2018.01A from its HDF5 file into a PyTorch-compatible
-    dataset without loading the complete 21+ GB file into RAM.
+    Lazy loading of the RadioML 2018.01A HDF5 dataset.
 
-Dataset:
-    RadioML 2018.01A
+Dataset format:
+    X: (N, 1024, 2)
+    Y: (N, 24)
+    Z: (N, 1)
 
-Raw HDF5 structure:
-    X : (N, 1024, 2) float32
-        I/Q signal samples
+PyTorch format:
+    signal: (2, 1024)
+    label : scalar class index
+    snr   : scalar SNR value
 
-    Y : (N, 24) int64
-        One-hot modulation labels
-
-    Z : (N, 1) int64
-        SNR value in dB
-
-Returned PyTorch sample:
-    signal : Tensor, shape (2, 1024)
-    label  : Tensor, scalar class index [0, 23]
-    snr    : int, SNR value in dB
-
-IMPORTANT:
-    SNR is never dropped. It remains aligned with every signal and label.
-    Downstream accuracy-vs-SNR and attack generalization evaluation depend
-    on this alignment.
+Important:
+    The complete 21+ GB HDF5 dataset is never loaded into RAM.
+    Samples are read only when requested by the DataLoader.
 """
 
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
+from typing import Tuple
 
 import h5py
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-# Constants
 
-NUM_CLASSES = 24
-SIGNAL_LENGTH = 1024
-NUM_CHANNELS = 2
+# ============================================================
+# Configuration
+# ============================================================
 
-# RadioML 2018.01A Dataset
+DEFAULT_DATASET_PATH = (
+    "data/raw/GOLD_XYZ_OSC.0001_1024.hdf5"
+)
 
-class RadioML2018Dataset(Dataset):
+DEFAULT_PROCESSED_DIR = "data/processed"
+
+DEFAULT_BATCH_SIZE = 128
+
+
+# ============================================================
+# RadioML Dataset
+# ============================================================
+
+class RadioMLDataset(Dataset):
     """
-    Lazy HDF5-backed PyTorch Dataset.
-    The complete HDF5 file is NOT loaded into memory.
-    Only the requested sample is read when __getitem__() is called.
+    Lazy PyTorch Dataset for RadioML 2018.01A.
+
+    Only the requested samples are read from the HDF5 file.
     """
+
     def __init__(
         self,
-        hdf5_path: str,
-        indices: Optional[Sequence[int]] = None,
+        hdf5_path: str = DEFAULT_DATASET_PATH,
+        indices_path: str | None = None,
     ):
         self.hdf5_path = Path(hdf5_path)
 
         if not self.hdf5_path.exists():
             raise FileNotFoundError(
-                f"RadioML dataset not found:\n{self.hdf5_path}"
+                f"HDF5 dataset not found: {self.hdf5_path}"
             )
 
-        self.indices = (
-            np.asarray(indices, dtype=np.int64)
-            if indices is not None
-            else None
-        )
+        # ----------------------------------------------------
+        # Load only the split indices.
+        # ----------------------------------------------------
 
-        # Do not keep an HDF5 file open while constructing the dataset.
-        # The file is opened lazily when a sample is requested.
+        if indices_path is None:
+            self.indices = np.arange(
+                self._get_dataset_length(),
+                dtype=np.int32,
+            )
+        else:
+            self.indices_path = Path(indices_path)
+
+            if not self.indices_path.exists():
+                raise FileNotFoundError(
+                    f"Index file not found: {self.indices_path}"
+                )
+
+            self.indices = np.load(
+                self.indices_path
+            ).astype(np.int32)
+
+        # ----------------------------------------------------
+        # HDF5 file handle.
+        #
+        # It is opened lazily when the first sample is
+        # requested. This is important for PyTorch workers.
+        # ----------------------------------------------------
+
         self._h5_file = None
 
-        # Read metadata only.
-        with h5py.File(self.hdf5_path, "r") as h5_file:
-            required_keys = {"X", "Y", "Z"}
-            if not required_keys.issubset(h5_file.keys()):
-                raise ValueError(
-                    "Invalid RadioML HDF5 file.\n"
-                    f"Expected datasets: {required_keys}\n"
-                    f"Found: {list(h5_file.keys())}"
-                )
-
-            x_shape = h5_file["X"].shape
-            y_shape = h5_file["Y"].shape
-            z_shape = h5_file["Z"].shape
-
-            self.length = x_shape[0]
-
-            # Validate X
-
-            if x_shape[1:] != (SIGNAL_LENGTH, NUM_CHANNELS):
-                raise ValueError(
-                    "Unexpected X shape.\n"
-                    f"Expected: (N, {SIGNAL_LENGTH}, {NUM_CHANNELS})\n"
-                    f"Found: {x_shape}"
-                )
-
-            # Validate Y
-
-            if y_shape != (self.length, NUM_CLASSES):
-                raise ValueError(
-                    "Unexpected Y shape.\n"
-                    f"Expected: (N, {NUM_CLASSES})\n"
-                    f"Found: {y_shape}"
-                )
-
-            # Validate Z
-
-            if z_shape != (self.length, 1):
-                raise ValueError(
-                    "Unexpected Z shape.\n"
-                    f"Expected: (N, 1)\n"
-                    f"Found: {z_shape}"
-                )
-
+    # --------------------------------------------------------
     # HDF5 handling
+    # --------------------------------------------------------
 
-    def _open_file(self):
-        """
-        Open the HDF5 file lazily.
-        This prevents the complete dataset from being loaded
-        into RAM.
-        """
+    def _get_dataset_length(self) -> int:
+        """Read the number of samples without loading X."""
+
+        with h5py.File(
+            self.hdf5_path,
+            "r",
+        ) as h5_file:
+            return h5_file["X"].shape[0]
+
+    def _open_hdf5(self):
+        """Open the HDF5 file lazily."""
 
         if self._h5_file is None:
             self._h5_file = h5py.File(
@@ -133,63 +118,27 @@ class RadioML2018Dataset(Dataset):
                 "r",
             )
 
-    def close(self):
-        """Close the HDF5 file if it is open."""
+    # --------------------------------------------------------
+    # Dataset interface
+    # --------------------------------------------------------
 
-        if self._h5_file is not None:
-            self._h5_file.close()
-            self._h5_file = None
-
-    def __del__(self):
-        """Attempt to close the HDF5 file when the object is destroyed."""
-
-        try:
-            self.close()
-        except Exception:
-            pass
-
-    # PyTorch Dataset interface
-    
     def __len__(self) -> int:
-        """Return number of available samples."""
-
-        if self.indices is not None:
-            return len(self.indices)
-
-        return self.length
+        return len(self.indices)
 
     def __getitem__(
         self,
         index: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor, int]:
-        """
-        Read one sample.
-        Returns:
-            signal:
-                torch.FloatTensor of shape (2, 1024)
-            label:
-                torch.LongTensor containing class index 0-23
-            snr:
-                Integer SNR value in dB
-        """
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
-        self._open_file()
+        self._open_hdf5()
 
-        # Resolve actual HDF5 index
-
-        if self.indices is not None:
-            real_index = int(self.indices[index])
-        else:
-            real_index = index
-            
-        # Read ONE sample from HDF5
-
-        signal = self._h5_file["X"][real_index]
-        label_one_hot = self._h5_file["Y"][real_index]
-        snr_value = self._h5_file["Z"][real_index]
+        # Map DataLoader index to original HDF5 index.
+        real_index = int(
+            self.indices[index]
+        )
 
         # ----------------------------------------------------
-        # Signal
+        # Read one signal.
         #
         # HDF5:
         #     (1024, 2)
@@ -198,147 +147,261 @@ class RadioML2018Dataset(Dataset):
         #     (2, 1024)
         # ----------------------------------------------------
 
-        signal = torch.from_numpy(
-            np.asarray(signal, dtype=np.float32)
+        signal = self._h5_file["X"][real_index]
+
+        signal = np.asarray(
+            signal,
+            dtype=np.float32,
         )
 
-        signal = signal.transpose(0, 1).contiguous()
+        signal = torch.from_numpy(
+            signal.T.copy()
+        )
 
         # ----------------------------------------------------
-        # Label
+        # Read one-hot modulation label.
         #
-        # Y is one-hot:
-        #
-        # [0, 0, 1, 0, ...]
+        # Y:
+        #     (24,)
         #
         # Convert to:
-        #
-        # 2
+        #     class index 0-23
         # ----------------------------------------------------
 
+        label_one_hot = self._h5_file["Y"][real_index]
+
+        label = int(
+            np.argmax(label_one_hot)
+        )
+
         label = torch.tensor(
-            int(np.argmax(label_one_hot)),
+            label,
             dtype=torch.long,
         )
 
-        # SNR
+        # ----------------------------------------------------
+        # Read SNR.
+        # ----------------------------------------------------
 
-        snr = int(snr_value[0])
+        snr = int(
+            self._h5_file["Z"][real_index][0]
+        )
+
+        snr = torch.tensor(
+            snr,
+            dtype=torch.int16,
+        )
+
         return signal, label, snr
 
+    # --------------------------------------------------------
+    # Cleanup
+    # --------------------------------------------------------
 
-# DataLoader helper
+    def close(self):
+        """Close the HDF5 file."""
 
-def create_dataloader(
-    dataset: Dataset,
-    batch_size: int = 128,
-    shuffle: bool = False,
+        if self._h5_file is not None:
+            self._h5_file.close()
+            self._h5_file = None
+
+    def __del__(self):
+        self.close()
+
+
+# ============================================================
+# DataLoader creation
+# ============================================================
+
+def create_dataloaders(
+    hdf5_path: str = DEFAULT_DATASET_PATH,
+    processed_dir: str = DEFAULT_PROCESSED_DIR,
+    batch_size: int = DEFAULT_BATCH_SIZE,
     num_workers: int = 0,
-) -> DataLoader:
+):
     """
-    Create a PyTorch DataLoader.
-    Windows note:
-        num_workers=0 is intentionally used initially because
-        HDF5 + multiprocessing requires additional care.
+    Create train, validation and test DataLoaders.
+
+    Returns:
+        train_loader
+        val_loader
+        test_loader
     """
 
-    return DataLoader(
-        dataset,
+    processed_path = Path(processed_dir)
+
+    train_dataset = RadioMLDataset(
+        hdf5_path=hdf5_path,
+        indices_path=str(
+            processed_path / "train_indices.npy"
+        ),
+    )
+
+    val_dataset = RadioMLDataset(
+        hdf5_path=hdf5_path,
+        indices_path=str(
+            processed_path / "val_indices.npy"
+        ),
+    )
+
+    test_dataset = RadioMLDataset(
+        hdf5_path=hdf5_path,
+        indices_path=str(
+            processed_path / "test_indices.npy"
+        ),
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=True,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
     )
 
-# Dataset inspection
-
-def inspect_dataset(hdf5_path: str) -> None:
-    """
-    Print HDF5 metadata.
-    This function only reads dataset metadata and does not load
-    the complete dataset into RAM.
-    """
-
-    path = Path(hdf5_path)
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Dataset not found:\n{path}"
-        )
-
-    with h5py.File(path, "r") as h5_file:
-        print("=" * 70)
-        print("RadioML 2018.01A Dataset")
-        print("=" * 70)
-        print(f"File: {path}")
-        print()
-
-        for key in h5_file.keys():
-            dataset = h5_file[key]
-
-            print(
-                f"{key}: "
-                f"shape={dataset.shape}, "
-                f"dtype={dataset.dtype}"
-            )
-        print("=" * 70)
-
-# Sample test
-
-def test_loader(hdf5_path: str) -> None:
-    """
-    Perform a small sanity test.
-    Only one sample and one small batch are read.
-    """
-
-    print()
-    print("Creating lazy dataset...")
-
-    dataset = RadioML2018Dataset(hdf5_path)
-
-    print(f"Dataset length: {len(dataset):,}")
-
-    # Test one sample
-
-    print()
-    print("Reading one sample...")
-
-    signal, label, snr = dataset[0]
-
-    print(f"Signal shape : {tuple(signal.shape)}")
-    print(f"Signal dtype : {signal.dtype}")
-    print(f"Label        : {label.item()}")
-    print(f"SNR          : {snr} dB")
-
-    # Test DataLoader
-    
-    print()
-    print("Creating DataLoader...")
-
-    loader = create_dataloader(
-        dataset,
-        batch_size=4,
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
     )
 
-    batch_signal, batch_label, batch_snr = next(iter(loader))
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
 
-    print(f"Batch signal shape : {tuple(batch_signal.shape)}")
-    print(f"Batch label shape  : {tuple(batch_label.shape)}")
-    print(f"Batch SNR shape    : {tuple(batch_snr.shape)}")
+    return (
+        train_loader,
+        val_loader,
+        test_loader,
+    )
 
-    print()
-    print("Loader test completed successfully.")
 
-    dataset.close()
-
-# Main
+# ============================================================
+# Manual test
+# ============================================================
 
 if __name__ == "__main__":
 
-    DATASET_PATH = (
-        "data/raw/GOLD_XYZ_OSC.0001_1024.hdf5"
+    print("=" * 70)
+    print("RadioML 2018.01A DataLoader Test")
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # Create datasets
+    # --------------------------------------------------------
+
+    train_dataset = RadioMLDataset(
+        indices_path=(
+            "data/processed/train_indices.npy"
+        )
     )
-    inspect_dataset(DATASET_PATH)
-    test_loader(DATASET_PATH)
+
+    val_dataset = RadioMLDataset(
+        indices_path=(
+            "data/processed/val_indices.npy"
+        )
+    )
+
+    test_dataset = RadioMLDataset(
+        indices_path=(
+            "data/processed/test_indices.npy"
+        )
+    )
+
+    print()
+    print("Dataset sizes:")
+    print(
+        f"Train      : {len(train_dataset):,}"
+    )
+    print(
+        f"Validation : {len(val_dataset):,}"
+    )
+    print(
+        f"Test       : {len(test_dataset):,}"
+    )
+
+    # --------------------------------------------------------
+    # Read one sample
+    # --------------------------------------------------------
+
+    print()
+    print("Reading one training sample...")
+
+    signal, label, snr = train_dataset[0]
+
+    print(
+        f"Signal shape : {tuple(signal.shape)}"
+    )
+    print(
+        f"Signal dtype : {signal.dtype}"
+    )
+    print(
+        f"Label        : {label.item()}"
+    )
+    print(
+        f"SNR          : {snr.item()} dB"
+    )
+
+    # --------------------------------------------------------
+    # Create DataLoaders
+    # --------------------------------------------------------
+
+    print()
+    print("Creating DataLoaders...")
+
+    train_loader, val_loader, test_loader = (
+        create_dataloaders(
+            batch_size=4,
+            num_workers=0,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Read one batch
+    # --------------------------------------------------------
+
+    print()
+    print("Reading one training batch...")
+
+    signals, labels, snrs = next(
+        iter(train_loader)
+    )
+
+    print(
+        f"Batch signal shape : {tuple(signals.shape)}"
+    )
+    print(
+        f"Batch label shape  : {tuple(labels.shape)}"
+    )
+    print(
+        f"Batch SNR shape    : {tuple(snrs.shape)}"
+    )
+
+    # --------------------------------------------------------
+    # Final checks
+    # --------------------------------------------------------
+
+    assert signals.shape == (
+        4,
+        2,
+        1024,
+    )
+
+    assert labels.shape == (4,)
+
+    assert snrs.shape == (4,)
+
+    assert signals.dtype == torch.float32
+
+    assert labels.dtype == torch.long
+
+    print()
+    print("=" * 70)
+    print("DATALOADER TEST PASSED")
+    print("=" * 70)
