@@ -1,0 +1,19 @@
+{
+  "evaluation": "robust_blackbox_surrogate_transfer",
+  "target_model": "robust",
+  "target_checkpoint": "D:\\MediCaps University\\7 SEM\\Project 1\\AMCShield\\checkpoints\\robust_best.pt",
+  "surrogate_checkpoint": "D:\\MediCaps University\\7 SEM\\Project 1\\AMCShield\\checkpoints\\surrogate_best.pt",
+  "dataset": "RadioML2018.01A",
+  "samples_per_snr": 256,
+  "epsilon": 0.02,
+  "steps": 10,
+  "num_snr_levels": 26,
+  "snr_range": [
+    -20,
+    30
+  ],
+  "snr_step": 2,
+  "query_budget": 5000,
+  "target_retrained": false,
+  "surrogate_retrained": false
+}

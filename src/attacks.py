@@ -16,8 +16,8 @@ Important:
 """
 
 from typing import Optional
-
 import torch
+import torch.nn.functional as F
 import torchattacks
 
 
@@ -315,9 +315,27 @@ def blackbox_transfer_attack(
     target_model is NOT used to generate the attack.
     """
 
-    surrogate_model.eval()
     target_model.eval()
-
+    
+    # The surrogate must be in TRAIN mode because its BiLSTM
+    # uses cuDNN, which requires training mode for backward().
+    #
+    # This does NOT train the surrogate:
+    # all surrogate parameters remain frozen.
+    surrogate_model.train()
+    
+    # Disable dropout while keeping the LSTM in training mode.
+    # This makes the attack deterministic.
+    dropout_modules = []
+    
+    for module in surrogate_model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            dropout_modules.append((module, module.p))
+            module.p = 0.0
+    
+    for parameter in surrogate_model.parameters():
+        parameter.requires_grad_(False)
+    
     x = x.detach()
     y = y.detach().long()
 
@@ -361,6 +379,133 @@ def blackbox_transfer_attack(
 
     return adv_x
 
+def black_box_attack(
+    target_model,
+    x,
+    y,
+    surrogate_model,
+    epsilon,
+    steps=10,
+):
+    """
+    Strict query-only black-box transfer attack.
+
+    Attack generation uses ONLY the surrogate model.
+
+    The target model is never differentiated through.
+
+    Ground-truth y is NOT used to generate the perturbation.
+    It is retained only for API compatibility.
+    """
+
+    # --------------------------------------------------------
+    # Target model
+    # --------------------------------------------------------
+
+    target_model.eval()
+
+    # --------------------------------------------------------
+    # Surrogate model
+    #
+    # The surrogate contains a BiLSTM.
+    # cuDNN requires RNN training mode for backward().
+    #
+    # This does NOT train the surrogate.
+    # Its parameters remain frozen.
+    # --------------------------------------------------------
+
+    surrogate_model.train()
+
+    # Disable dropout while retaining LSTM training mode.
+    dropout_modules = []
+
+    for module in surrogate_model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            dropout_modules.append(
+                (module, module.p)
+            )
+            module.p = 0.0
+
+    # Freeze all surrogate parameters.
+    for parameter in surrogate_model.parameters():
+        parameter.requires_grad_(False)
+
+    x = x.detach()
+    y = y.detach().long()
+
+    # --------------------------------------------------------
+    # Query surrogate for labels.
+    #
+    # IMPORTANT:
+    # Ground-truth y is NOT used here.
+    # --------------------------------------------------------
+
+    with torch.no_grad():
+        surrogate_labels = torch.argmax(
+            surrogate_model(x),
+            dim=1,
+        )
+
+    # --------------------------------------------------------
+    # Random initialization inside epsilon L-infinity ball
+    # --------------------------------------------------------
+
+    delta = torch.empty_like(x).uniform_(
+        -epsilon,
+        epsilon,
+    )
+
+    adv_x = (x + delta).detach()
+
+    alpha = epsilon / max(steps, 1)
+
+    # --------------------------------------------------------
+    # PGD on SURROGATE ONLY
+    # --------------------------------------------------------
+
+    for _ in range(steps):
+
+        adv_x.requires_grad_(True)
+
+        surrogate_model.zero_grad(
+            set_to_none=True
+        )
+
+        logits = surrogate_model(adv_x)
+
+        loss = F.cross_entropy(
+            logits,
+            surrogate_labels,
+        )
+
+        loss.backward()
+
+        gradient = adv_x.grad.detach()
+
+        adv_x = (
+            adv_x.detach()
+            + alpha * gradient.sign()
+        )
+
+        # Project into epsilon L-infinity ball.
+        #
+        # No [0,1] clipping because these are RF/IQ signals.
+        adv_x = _project_linf(
+            adv_x,
+            x,
+            epsilon,
+        ).detach()
+
+    # --------------------------------------------------------
+    # Restore surrogate state
+    # --------------------------------------------------------
+
+    for module, original_p in dropout_modules:
+        module.p = original_p
+
+    surrogate_model.eval()
+
+    return adv_x.detach()
 
 # ============================================================
 # Self test
