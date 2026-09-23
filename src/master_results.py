@@ -19,6 +19,49 @@ def load(name):
     return pd.read_csv(path)
 
 
+def normalize_percent(df, columns, source_scale, label):
+    """Normalize known accuracy/ASR columns to canonical percent scale [0, 100]."""
+    out = df.copy()
+    if source_scale == "fraction":
+        for column in columns:
+            if column in out.columns:
+                out[column] = pd.to_numeric(out[column], errors="raise") * 100.0
+    elif source_scale == "percent":
+        for column in columns:
+            if column in out.columns:
+                out[column] = pd.to_numeric(out[column], errors="raise")
+    else:
+        raise ValueError(f"Unknown source scale for {label}: {source_scale}")
+
+    for column in columns:
+        if column not in out.columns:
+            continue
+        values = pd.to_numeric(out[column], errors="coerce")
+        if values.isna().any():
+            raise ValueError(f"{label}: non-numeric/NaN values found in {column}")
+        if ((values < 0) | (values > 100)).any():
+            bad = values[(values < 0) | (values > 100)].iloc[0]
+            raise ValueError(
+                f"{label}: column '{column}' contains value {bad}, outside [0, 100]"
+            )
+    return out
+
+
+def validate_percent_columns(df, columns, label):
+    """Sanity-check canonical percent columns after all source normalization."""
+    for column in columns:
+        if column not in df.columns:
+            continue
+        values = pd.to_numeric(df[column], errors="coerce")
+        if values.isna().any() or ((values < 0) | (values > 100)).any():
+            bad = values[values.isna() | (values < 0) | (values > 100)]
+            example = bad.iloc[0] if len(bad) else "unknown"
+            raise ValueError(
+                f"{label}: normalized column '{column}' has invalid value {example}; "
+                "expected [0, 100] percent scale."
+            )
+
+
 def keep_without_clean(df, columns):
     """
     Select requested columns while explicitly excluding any
@@ -37,6 +80,9 @@ clean = load("clean_results.csv")[[
 ]].rename(
     columns={"accuracy": "clean_accuracy"}
 )
+clean = normalize_percent(
+    clean, ["clean_accuracy"], "fraction", "robust clean"
+)
 
 
 fgsm = load("fgsm_results.csv")[[
@@ -45,6 +91,9 @@ fgsm = load("fgsm_results.csv")[[
     "attack_success_rate"
 ]].rename(
     columns={"attack_success_rate": "fgsm_asr"}
+)
+fgsm = normalize_percent(
+    fgsm, ["fgsm_accuracy", "fgsm_asr"], "fraction", "robust FGSM"
 )
 
 
@@ -55,6 +104,9 @@ pgd = load("pgd_results.csv")[[
 ]].rename(
     columns={"attack_success_rate": "pgd_asr"}
 )
+pgd = normalize_percent(
+    pgd, ["pgd_accuracy", "pgd_asr"], "fraction", "robust PGD"
+)
 
 
 mim = load("mim_results.csv")[[
@@ -63,6 +115,9 @@ mim = load("mim_results.csv")[[
     "attack_success_rate"
 ]].rename(
     columns={"attack_success_rate": "mim_asr"}
+)
+mim = normalize_percent(
+    mim, ["mim_accuracy", "mim_asr"], "fraction", "robust MIM"
 )
 
 
@@ -83,6 +138,9 @@ cw = load("cw_results.csv")[[
         "max_l2": "cw_max_l2",
     }
 )
+cw = normalize_percent(
+    cw, ["cw_accuracy", "cw_asr"], "fraction", "robust C&W"
+)
 
 
 blackbox = load("blackbox_results.csv")[[
@@ -102,6 +160,9 @@ blackbox = load("blackbox_results.csv")[[
         "max_l2": "blackbox_max_l2",
     }
 )
+blackbox = normalize_percent(
+    blackbox, ["blackbox_accuracy", "blackbox_asr"], "percent", "robust Black-box"
+)
 
 
 # ------------------------------------------------------------
@@ -113,6 +174,9 @@ b_clean = load("baseline_clean_results.csv")[[
     "clean_accuracy"
 ]].rename(
     columns={"clean_accuracy": "baseline_clean_accuracy"}
+)
+b_clean = normalize_percent(
+    b_clean, ["baseline_clean_accuracy"], "percent", "baseline clean"
 )
 
 
@@ -126,6 +190,9 @@ b_fgsm = load("baseline_fgsm_results.csv")[[
         "attack_success_rate": "baseline_fgsm_asr",
     }
 )
+b_fgsm = normalize_percent(
+    b_fgsm, ["baseline_fgsm_accuracy", "baseline_fgsm_asr"], "percent", "baseline FGSM"
+)
 
 
 b_pgd = load("baseline_pgd_results.csv")[[
@@ -138,6 +205,9 @@ b_pgd = load("baseline_pgd_results.csv")[[
         "attack_success_rate": "baseline_pgd_asr",
     }
 )
+b_pgd = normalize_percent(
+    b_pgd, ["baseline_pgd_accuracy", "baseline_pgd_asr"], "percent", "baseline PGD"
+)
 
 
 b_mim = load("baseline_mim_results.csv")[[
@@ -149,6 +219,9 @@ b_mim = load("baseline_mim_results.csv")[[
         "attack_accuracy": "baseline_mim_accuracy",
         "attack_success_rate": "baseline_mim_asr",
     }
+)
+b_mim = normalize_percent(
+    b_mim, ["baseline_mim_accuracy", "baseline_mim_asr"], "percent", "baseline MIM"
 )
 
 
@@ -170,6 +243,9 @@ b_cw = load("baseline_cw_results.csv")[[
         "max_l2": "baseline_cw_max_l2",
     }
 )
+b_cw = normalize_percent(
+    b_cw, ["baseline_cw_accuracy", "baseline_cw_asr"], "percent", "baseline C&W"
+)
 
 
 b_black = load("baseline_blackbox_results.csv")[[
@@ -181,6 +257,9 @@ b_black = load("baseline_blackbox_results.csv")[[
         "blackbox_accuracy": "baseline_blackbox_accuracy",
         "attack_success_rate": "baseline_blackbox_asr",
     }
+)
+b_black = normalize_percent(
+    b_black, ["baseline_blackbox_accuracy", "baseline_blackbox_asr"], "percent", "baseline Black-box"
 )
 
 
@@ -237,50 +316,22 @@ for df in datasets:
 
 
 # ------------------------------------------------------------
-# Percentage fields
+# Canonical scale validation
 # ------------------------------------------------------------
 
-# Preserve original robust-model percentage fields
-master["clean_accuracy_pct"] = (
-    master["clean_accuracy"] * 100
-)
+PERCENT_COLUMNS = [
+    "clean_accuracy", "fgsm_accuracy", "fgsm_asr",
+    "pgd_accuracy", "pgd_asr", "mim_accuracy", "mim_asr",
+    "cw_accuracy", "cw_asr", "blackbox_accuracy", "blackbox_asr",
+    "baseline_clean_accuracy",
+    "baseline_fgsm_accuracy", "baseline_fgsm_asr",
+    "baseline_pgd_accuracy", "baseline_pgd_asr",
+    "baseline_mim_accuracy", "baseline_mim_asr",
+    "baseline_cw_accuracy", "baseline_cw_asr",
+    "baseline_blackbox_accuracy", "baseline_blackbox_asr",
+]
 
-for attack in [
-    "fgsm",
-    "pgd",
-    "mim",
-    "cw",
-    "blackbox",
-]:
-    master[f"{attack}_accuracy_pct"] = (
-        master[f"{attack}_accuracy"] * 100
-    )
-
-    master[f"{attack}_asr_pct"] = (
-        master[f"{attack}_asr"] * 100
-    )
-
-
-# Baseline percentage fields
-master["baseline_clean_accuracy_pct"] = (
-    master["baseline_clean_accuracy"] * 100
-)
-
-for attack in [
-    "fgsm",
-    "pgd",
-    "mim",
-    "cw",
-    "blackbox",
-]:
-    master[f"baseline_{attack}_accuracy_pct"] = (
-        master[f"baseline_{attack}_accuracy"] * 100
-    )
-
-    master[f"baseline_{attack}_asr_pct"] = (
-        master[f"baseline_{attack}_asr"] * 100
-    )
-
+validate_percent_columns(master, PERCENT_COLUMNS, "master")
 
 # ------------------------------------------------------------
 # Sort
@@ -391,7 +442,7 @@ print("  ✓ Robust black-box")
 print("  ✓ Baseline clean/FGSM/PGD/MIM/CW")
 print("  ✓ Baseline black-box")
 print("  ✓ Generalization gaps")
-print("  ✓ Percentage fields")
+print("  ✓ Canonical percent scale [0, 100] validated")
 
 print("\nFiles:")
 print(f"  CSV  : {csv_path}")
