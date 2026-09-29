@@ -30,3 +30,6 @@ Thumbs.db
 .env
 
 data/
+
+gitleaks-current.json
+gitleaks-history.json
