@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="theme-color" content="#050807"><title>AMCShield — Visualization</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="visualization.css">
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+<div class="shell">
+<aside class="sidebar" id="sidebar">
+  <div class="brand"><img src="assets/amcshield-logo.png" alt="AMCShield"></div>
+  <nav>
+    <a href="dashboard.html">⌂ <span>Dashboard</span></a>
+    <a href="dataset.html">◫ <span>Dataset</span></a>
+    <a href="model-training.html">▣ <span>Model Training</span></a>
+    <a href="adversarial-attacks.html">⌁ <span>Adversarial Attacks</span></a>
+    <a href="evaluation-results.html">◒ <span>Evaluation Results</span></a>
+    <a class="active" href="visualization.html">▥ <span>Visualization</span></a>
+    <a href="reports.html">▤ <span>Reports</span></a>
+    <a href="about.html">ⓘ <span>About Project</span></a>
+  </nav>
+  <div class="side-bottom">
+    <div class="api" id="api"><i></i><div><b id="apiText">CHECKING API</b><small id="apiDetail">Connecting…</small></div></div>
+    <button class="logout" id="logout">↪ &nbsp; Logout</button>
+  </div>
+</aside>
+<div class="overlay" id="overlay"></div>
+<main class="main">
+<header class="topbar">
+  <div class="title"><button class="menu" id="menu">☰</button><div><span>AMCSHIELD / ANALYTICS CONSOLE</span><h1>Visualization</h1></div></div>
+  <div class="actions"><div class="source"><small>VISUALIZATION SOURCE</small><b id="source">Backend</b></div><button id="refresh">↻ Refresh</button><div class="avatar">A</div></div>
+</header>
+
+<section class="hero">
+ <div class="hero-bg"></div><div class="shade"></div>
+ <div class="hero-copy"><div class="kicker"><i></i> SIGNAL INTELLIGENCE / VISUAL ANALYTICS</div>
+ <h2>Turn Evaluation Data<br><strong>Into Signal.</strong></h2>
+ <p>Explore SNR behavior, clean accuracy, adversarial degradation, attack success, and robustness deltas through backend-driven visual analytics.</p>
+ <div class="chips"><span>SNR PROFILE</span><span>ACCURACY</span><span>ASR</span><span>GENERALIZATION</span></div></div>
+ <div class="live"><i></i><div><b id="liveText">VISUALS READY</b><small id="liveDetail">Waiting for API data</small></div></div>
+</section>
+
+<div class="section-head"><div><span>VISUAL ANALYTICS</span><h2>Signal Intelligence Board</h2></div><small id="updated">Not loaded</small></div>
+<section class="kpis">
+ <div class="kpi"><em>◎</em><label>DATA POINTS</label><strong id="points">—</strong><small>Backend records</small></div>
+ <div class="kpi"><em>⌁</em><label>SNR LEVELS</label><strong id="snrs">—</strong><small id="snrRange">—</small></div>
+ <div class="kpi"><em>◈</em><label>MEAN ROBUST ASR</label><strong id="rasr">—</strong><small>All configured attacks</small></div>
+ <div class="kpi"><em>⚠</em><label>MEAN BASELINE ASR</label><strong id="basr">—</strong><small>All configured attacks</small></div>
+</section>
+
+<section class="toolbar panel">
+ <div><span>CHART CONTROLS</span><h2>Visualization Scope</h2></div>
+ <div class="controls">
+  <label>Attack<select id="attack"><option value="">All attacks</option></select></label>
+  <label>Model<select id="model"><option value="">All models</option></select></label>
+  <label>SNR<select id="snr"><option value="">All SNR</option></select></label>
+  <label>View<select id="view"><option value="accuracy">Accuracy by SNR</option><option value="asr">Attack Success by SNR</option><option value="gap">Generalization Gap</option></select></label>
+  <button class="primary" id="apply">Apply</button><button class="secondary" id="reset">Reset</button>
+ </div>
+</section>
+
+<section class="grid">
+ <article class="panel chart-panel wide"><div class="panel-head"><div><span>PRIMARY SIGNAL VIEW</span><h2 id="chartTitle">Accuracy Across SNR</h2></div><small>percent</small></div><div class="chart" id="mainChart"><div class="empty">Waiting for backend chart data…</div></div></article>
+ <article class="panel chart-panel"><div class="panel-head"><div><span>ATTACK COMPARISON</span><h2>Mean ASR</h2></div><small>percent</small></div><div class="chart compact" id="attackChart"><div class="empty">Waiting…</div></div></article>
+ <article class="panel chart-panel"><div class="panel-head"><div><span>SNR DELTA</span><h2>Generalization Gap</h2></div><small>pp</small></div><div class="chart compact" id="gapChart"><div class="empty">Waiting…</div></div></article>
+</section>
+
+<section class="panel heat-panel"><div class="panel-head"><div><span>ROBUSTNESS MAP</span><h2>Attack Success Rate by SNR</h2></div><small>percent</small></div><div id="heatmap" class="heatmap"><div class="empty">Waiting for backend heatmap data…</div></div></section>
+
+<section class="grid bottom">
+ <article class="panel"><div class="panel-head"><div><span>CLASS BEHAVIOR</span><h2>Per-Class Accuracy</h2></div><small>percent</small></div><div id="classChart" class="chart compact"><div class="empty">Waiting…</div></div></article>
+ <article class="panel"><div class="panel-head"><div><span>MODEL DELTA</span><h2>Baseline vs Robust</h2></div><small>percent</small></div><div id="modelChart" class="chart compact"><div class="empty">Waiting…</div></div></article>
+</section>
+
+<section class="panel notes"><div class="panel-head"><div><span>VISUALIZATION NOTES</span><h2>Backend Findings</h2></div><span class="badge">DYNAMIC</span></div><div id="notes"><div class="empty">No findings returned.</div></div></section>
+<footer><span>AMCShield © 2026</span><span>Medicaps University · Computer Science & Engineering</span><span>Secure AI Research Console</span></footer>
+</main></div>
+<script src="visualization.js"></script>
+</body></html>

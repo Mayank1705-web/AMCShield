@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#050807" />
+  <title>AMCShield — Secure Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="login.css" />
+</head>
+<body>
+  <main class="login-page">
+    <div class="scene" aria-hidden="true">
+      <div class="scene-image"></div>
+      <div class="scene-vignette"></div>
+      <div class="scene-right-fade"></div>
+      <div class="scene-grain"></div>
+    </div>
+
+    <header class="brand">
+      <img
+        src="assets/amcshield-logo.png"
+        alt="AMCShield — Defending the Airwaves with AI"
+        class="brand-logo"
+      />
+    </header>
+
+    <section class="hero-copy" aria-labelledby="hero-title">
+      <div class="hero-accent"></div>
+      <h1 id="hero-title">
+        <span>SECURE</span>
+        <strong>THE SPECTRUM</strong>
+        <span>WITH AI</span>
+      </h1>
+      <p>Automatic Modulation Classification<br />under Adversarial Conditions</p>
+    </section>
+
+    <div class="rf-badge" aria-hidden="true">
+      <span class="rf-dot"></span>
+      <span class="rf-label">RF SPECTRUM // CH-08</span>
+      <span class="mini-spectrum">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </span>
+    </div>
+
+    <section class="feature-bar" aria-label="AMCShield capabilities">
+      <article class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none">
+            <path d="M24 37V21M18 37h12M12 18a17 17 0 0 1 24 0M7 13a24 24 0 0 1 34 0M24 14a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/>
+          </svg>
+        </div>
+        <h2>ANALYZE</h2>
+        <p>Radio Signals</p>
+      </article>
+
+      <article class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none">
+            <path d="M24 8v32M16 14c-5 2-7 7-4 11 1 2 4 3 7 3M32 14c5 2 7 7 4 11-1 2-4 3-7 3M14 31c-4 1-5 5-2 8 2 2 5 2 8 0M34 31c4 1 5 5 2 8-2 2-5 2-8 0M17 9c-3 0-5 2-5 5s2 5 5 5M31 9c3 0 5 2 5 5s-2 5-5 5"/>
+          </svg>
+        </div>
+        <h2>DETECT</h2>
+        <p>Adversarial Threats</p>
+      </article>
+
+      <article class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none">
+            <path d="M9 38h31M13 34V23M22 34V15M31 34V20M40 34V10"/>
+          </svg>
+        </div>
+        <h2>EVALUATE</h2>
+        <p>Model Robustness</p>
+      </article>
+
+      <article class="feature">
+        <div class="feature-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none">
+            <path d="M24 5 39 11v11c0 10-6 17-15 21C15 39 9 32 9 22V11l15-6Z"/>
+            <path d="m17 24 5 5 10-11"/>
+          </svg>
+        </div>
+        <h2>BUILD</h2>
+        <p>Secure AI Systems</p>
+      </article>
+    </section>
+
+    <section class="login-panel" aria-labelledby="login-title">
+      <div class="connection-status">
+        <span class="status-dot"></span>
+        <span>SECURE CONNECTION</span>
+      </div>
+
+      <div class="login-brand">
+        <img
+          src="assets/amcshield-logo.png"
+          alt="AMCShield"
+          class="login-logo"
+        />
+      </div>
+
+      <div class="login-heading">
+        <h2 id="login-title">Welcome Back</h2>
+        <p>Login to access the AMCShield dashboard and<br class="desktop-only" />
+          explore model training, attacks, evaluation and more.</p>
+      </div>
+
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="identity">Email or Username</label>
+          <div class="input-shell">
+            <span class="field-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                <path d="m4 7 8 6 8-6"/>
+              </svg>
+            </span>
+            <input
+              id="identity"
+              name="identity"
+              type="text"
+              autocomplete="username"
+              placeholder="Email or Username"
+              aria-describedby="identityError"
+            />
+          </div>
+          <p class="field-error" id="identityError" role="alert"></p>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="input-shell">
+            <span class="field-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect x="5" y="10" width="14" height="10" rx="2"/>
+                <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+              </svg>
+            </span>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Password"
+              aria-describedby="passwordError"
+            />
+            <button class="icon-button password-toggle" type="button" aria-label="Show password">
+              <svg class="eye-open" viewBox="0 0 24 24" fill="none">
+                <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/>
+                <circle cx="12" cy="12" r="2.5"/>
+              </svg>
+              <svg class="eye-closed" viewBox="0 0 24 24" fill="none">
+                <path d="m3 3 18 18M10.6 6.2A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a18 18 0 0 1-3.1 3.7M6.1 6.9C3.7 8.6 2.5 12 2.5 12s3.5 6 9.5 6c1.2 0 2.3-.2 3.3-.6"/>
+              </svg>
+            </button>
+          </div>
+          <p class="field-error" id="passwordError" role="alert"></p>
+        </div>
+
+        <div class="form-options">
+          <label class="remember">
+            <input id="remember" type="checkbox" />
+            <span class="custom-check"></span>
+            <span>Remember me</span>
+          </label>
+          <button class="forgot-button" type="button" id="forgotButton">Forgot password?</button>
+        </div>
+
+        <button class="login-button" id="loginButton" type="submit">
+          <span class="button-text">LOGIN</span>
+          <span class="button-icon" aria-hidden="true">↪</span>
+          <span class="button-loader" aria-hidden="true"></span>
+        </button>
+
+        <div class="divider"><span></span><em>OR</em><span></span></div>
+
+        <button class="github-button" id="githubButton" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d="M12 .7a11.3 11.3 0 0 0-3.6 22c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.6.1-3.2 0 0 1-.3 3.3 1.2a11.2 11.2 0 0 1 6 0C17.5 4.4 18.5 4.7 18.5 4.7c.6 1.6.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.3.7 1 .7 2v3c0 .3.2.7.8.6A11.3 11.3 0 0 0 12 .7Z"/>
+          </svg>
+          <span>Continue with GitHub</span>
+        </button>
+      </form>
+
+      <div class="login-footer">
+        <span>New to AMCShield?</span>
+        <button type="button" id="contactButton"><a href="#" id="contactAdminLink">Contact Admin</a></button>
+      </div>
+
+      <div class="form-message" id="formMessage" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script src="login.js"></script>
+  <div id="contactAdminModal" class="contact-modal hidden">
+      <div class="contact-modal-backdrop"></div>
+  
+      <div class="contact-modal-card">
+          <button
+              type="button"
+              class="contact-modal-close"
+              id="closeContactAdmin"
+              aria-label="Close"
+          >
+              ×
+          </button>
+  
+          <div class="contact-modal-header">
+              <span class="contact-modal-kicker">AMCShield / SUPPORT</span>
+              <h2>Contact Admin</h2>
+              <p>
+                  Send a message to the AMCShield administrator.
+              </p>
+          </div>
+  
+          <form id="contactAdminForm">
+  
+              <div class="contact-field">
+                  <label for="contactName">Name</label>
+                  <input
+                      id="contactName"
+                      name="name"
+                      type="text"
+                      placeholder="Your name"
+                      required
+                      maxlength="100"
+                  >
+              </div>
+  
+              <div class="contact-field">
+                  <label for="contactEmail">Email</label>
+                  <input
+                      id="contactEmail"
+                      name="email"
+                      type="email"
+                      placeholder="your@email.com"
+                      required
+                      maxlength="200"
+                  >
+              </div>
+  
+              <div class="contact-field">
+                  <label for="contactSubject">Subject</label>
+                  <input
+                      id="contactSubject"
+                      name="subject"
+                      type="text"
+                      placeholder="What do you need help with?"
+                      required
+                      maxlength="200"
+                  >
+              </div>
+  
+              <div class="contact-field">
+                  <label for="contactMessage">Message</label>
+                  <textarea
+                      id="contactMessage"
+                      name="message"
+                      rows="5"
+                      placeholder="Describe your request..."
+                      required
+                      maxlength="2000"
+                  ></textarea>
+              </div>
+  
+              <div
+                  id="contactAdminStatus"
+                  class="contact-admin-status"
+              ></div>
+  
+              <button
+                  type="submit"
+                  class="contact-submit"
+                  id="contactSubmit"
+              >
+                  SEND MESSAGE
+                  <span>→</span>
+              </button>
+  
+          </form>
+      </div>
+  </div>
+</body>
+</html>

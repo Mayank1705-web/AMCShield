@@ -154,8 +154,33 @@ class RadioMLDataset(Dataset):
             dtype=np.float32,
         )
 
+        # (1024, 2) -> (2, 1024)
+        signal = signal.T.copy()
+
+        # ----------------------------------------------------
+        # Per-sample unit-energy normalization.
+        #
+        # This mirrors preprocess.normalize() and is applied
+        # here (rather than to the raw HDF5 file) so the
+        # 21+ GB dataset on disk never has to be rewritten.
+        #
+        # Without this, signal amplitude varies with transmit
+        # power/SNR and the fixed L-inf epsilon used for FGSM/
+        # PGD/MIM is not a consistent *relative* perturbation
+        # budget across samples.
+        # ----------------------------------------------------
+
+        energy = np.sqrt(
+            np.sum(signal ** 2)
+        )
+
+        signal = signal / max(
+            float(energy),
+            1e-12,
+        )
+
         signal = torch.from_numpy(
-            signal.T.copy()
+            signal
         )
 
         # ----------------------------------------------------

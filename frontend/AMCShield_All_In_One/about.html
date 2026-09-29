@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#050807">
+<title>AMCShield — About Project</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="about.css">
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+<div class="shell">
+<aside class="sidebar" id="sidebar">
+  <div class="brand"><img src="assets/amcshield-logo.png" alt="AMCShield"></div>
+  <nav>
+    <a href="dashboard.html">⌂ <span>Dashboard</span></a>
+    <a href="dataset.html">◫ <span>Dataset</span></a>
+    <a href="model-training.html">▣ <span>Model Training</span></a>
+    <a href="adversarial-attacks.html">⌁ <span>Adversarial Attacks</span></a>
+    <a href="evaluation-results.html">◒ <span>Evaluation Results</span></a>
+    <a href="visualization.html">▥ <span>Visualization</span></a>
+    <a href="reports.html">▤ <span>Reports</span></a>
+    <a class="active" href="about.html">ⓘ <span>About Project</span></a>
+  </nav>
+  <div class="side-bottom">
+    <div class="api" id="api"><i></i><div><b id="apiText">CHECKING API</b><small id="apiDetail">Connecting…</small></div></div>
+    <button class="logout" id="logout">↪ &nbsp; Logout</button>
+  </div>
+</aside>
+<div class="overlay" id="overlay"></div>
+
+<main class="main">
+<header class="topbar">
+  <div class="title">
+    <button class="menu" id="menu">☰</button>
+    <div><span>AMCSHIELD / PROJECT INTELLIGENCE</span><h1>About Project</h1></div>
+  </div>
+  <div class="actions">
+    <div class="source"><small>PROJECT SOURCE</small><b id="source">Backend</b></div>
+    <button id="refresh">↻ Refresh</button>
+    <div class="avatar">A</div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-bg"></div><div class="shade"></div>
+  <div class="hero-copy">
+    <div class="kicker"><i></i> ROBUST AUTOMATIC MODULATION CLASSIFICATION</div>
+    <h2>Know the Mission.<br><strong>Know the Shield.</strong></h2>
+    <p id="heroDescription">AMCShield is a robust Automatic Modulation Classification research platform for evaluating how neural signal classifiers behave under adversarial perturbations and changing signal-to-noise conditions.</p>
+    <div class="chips"><span>RADIO ML</span><span>ROBUST AI</span><span>ADVERSARIAL ML</span><span>SIGNAL INTELLIGENCE</span></div>
+  </div>
+  <div class="live"><i></i><div><b id="liveText">PROJECT PROFILE READY</b><small id="liveDetail">Backend metadata</small></div></div>
+</section>
+
+<div class="section-head">
+  <div><span>PROJECT PROFILE</span><h2>AMCShield Intelligence</h2></div>
+  <small id="updated">Not loaded</small>
+</div>
+
+<section class="kpis">
+  <div class="kpi"><em>◈</em><label>PROJECT STATUS</label><strong id="status">—</strong><small>Backend project state</small></div>
+  <div class="kpi"><em>◎</em><label>CLASS COUNT</label><strong id="classes">—</strong><small>Supported modulation classes</small></div>
+  <div class="kpi"><em>⌁</em><label>SNR RANGE</label><strong id="snr">—</strong><small>Signal conditions</small></div>
+  <div class="kpi"><em>▣</em><label>MODEL VARIANTS</label><strong id="models">—</strong><small>Registered models</small></div>
+</section>
+
+<section class="grid">
+<article class="panel mission">
+  <div class="panel-head"><div><span>PROJECT MISSION</span><h2>Why AMCShield Exists</h2></div><span class="badge">RESEARCH</span></div>
+  <div id="missionText" class="rich-text">
+    <p>AMCShield studies Automatic Modulation Classification from a robustness perspective: classification accuracy alone is not enough when a model can be exposed to adversarially modified signals.</p>
+    <p>The platform brings dataset inspection, model training, adversarial attack evaluation, visualization, and report generation into one reproducible workflow.</p>
+  </div>
+</article>
+
+<article class="panel facts">
+  <div class="panel-head"><div><span>TECHNICAL PROFILE</span><h2>System Facts</h2></div><small>backend</small></div>
+  <div id="facts" class="fact-list"><div class="empty">Waiting for project metadata…</div></div>
+</article>
+</section>
+
+<section class="panel pipeline">
+  <div class="panel-head"><div><span>RESEARCH PIPELINE</span><h2>From Signal to Evidence</h2></div><span class="badge">8 STAGES</span></div>
+  <div id="pipeline" class="pipeline-grid">
+    <div class="stage"><b>01</b><strong>Dataset</strong><p>Inspect signals, classes, SNR distribution, and splits.</p></div>
+    <div class="stage"><b>02</b><strong>Preparation</strong><p>Prepare tensors and reproducible data loaders.</p></div>
+    <div class="stage"><b>03</b><strong>Baseline</strong><p>Establish standard classifier performance.</p></div>
+    <div class="stage"><b>04</b><strong>Robust Model</strong><p>Train the robustness-oriented classifier.</p></div>
+    <div class="stage"><b>05</b><strong>Attacks</strong><p>Evaluate FGSM, PGD, MIM, C&amp;W and black-box threats.</p></div>
+    <div class="stage"><b>06</b><strong>Evaluation</strong><p>Measure accuracy, ASR, perturbation and gaps.</p></div>
+    <div class="stage"><b>07</b><strong>Visualization</strong><p>Expose SNR and attack behavior through charts.</p></div>
+    <div class="stage"><b>08</b><strong>Reports</strong><p>Package validated results into reproducible reports.</p></div>
+  </div>
+</section>
+
+<section class="grid">
+<article class="panel models-panel">
+  <div class="panel-head"><div><span>MODEL ARCHITECTURE</span><h2>Registered Models</h2></div><small id="modelSource">Backend</small></div>
+  <div id="modelList" class="model-list"><div class="empty">Waiting for model metadata…</div></div>
+</article>
+
+<article class="panel attacks-panel">
+  <div class="panel-head"><div><span>THREAT MODEL</span><h2>Attack Surface</h2></div><small>configured</small></div>
+  <div id="attackList" class="attack-list"><div class="empty">Waiting for attack metadata…</div></div>
+</article>
+</section>
+
+<section class="panel stack-panel">
+  <div class="panel-head"><div><span>TECHNOLOGY STACK</span><h2>Implementation Stack</h2></div><span class="badge">BACKEND-DRIVEN</span></div>
+  <div id="stack" class="stack-grid">
+    <div class="stack-card"><b>DATA</b><strong>RadioML2018.01A</strong><small>RF signal dataset</small></div>
+    <div class="stack-card"><b>ML</b><strong>PyTorch</strong><small>Model training and evaluation</small></div>
+    <div class="stack-card"><b>LANGUAGE</b><strong>Python 3.11</strong><small>Research and backend layer</small></div>
+    <div class="stack-card"><b>API</b><strong>FastAPI</strong><small>Service and frontend integration</small></div>
+    <div class="stack-card"><b>DATA</b><strong>NumPy / Pandas</strong><small>Numerical and result processing</small></div>
+    <div class="stack-card"><b>GPU</b><strong>CUDA</strong><small>Accelerated model evaluation</small></div>
+  </div>
+</section>
+
+<section class="panel people-panel">
+  <div class="panel-head"><div><span>PROJECT CONTEXT</span><h2>Research Information</h2></div><small>backend metadata</small></div>
+  <div id="context" class="context-grid"><div class="empty">Waiting for project context…</div></div>
+</section>
+
+<section class="panel links-panel">
+  <div class="panel-head"><div><span>PROJECT RESOURCES</span><h2>Reference Links</h2></div><span class="badge">OPTIONAL</span></div>
+  <div id="links" class="links-grid">
+    <a href="https://github.com/Mayank1705-web/AMCShield" target="_blank" rel="noopener"><b>GITHUB</b><strong>AMCShield Repository</strong><small>Project source and implementation</small><span>↗</span></a>
+  </div>
+</section>
+
+<footer><span>AMCShield © 2026</span><span>Medicaps University · Computer Science &amp; Engineering</span><span>Secure AI Research Console</span></footer>
+</main>
+</div>
+<script src="about.js"></script>
+</body>
+</html>

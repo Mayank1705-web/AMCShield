@@ -1,8 +1,12 @@
-# AMCShield configuration
+# ============================================================
+# AMCShield Configuration
 # RadioML 2018.01A
-# Central configuration for dataset, training, attacks and evaluation.
+# Central configuration for dataset, training, attacks,
+# adversarial training, and evaluation.
+# ============================================================
 
 seed: 42
+
 
 # ============================================================
 # Dataset
@@ -14,29 +18,33 @@ dataset:
   # Main HDF5 dataset
   path: "data/raw/GOLD_XYZ_OSC.0001_1024.hdf5"
 
-  # Corrected modulation class mapping supplied with the dataset
+  # Corrected modulation class mapping
   classes_path: "data/raw/classes-fixed.json"
 
+  # Number of modulation classes
   num_classes: 24
 
-  # RadioML 2018.01A signal format:
-  # Raw: (1024, 2)
-  # PyTorch: (2, 1024)
+  # RadioML 2018.01A signal format
+  # Raw format:    (1024, 2)
+  # PyTorch format: (2, 1024)
   input_channels: 2
   signal_length: 1024
 
   # SNR values:
-  # -20, -18, ..., 28, 30 dB
+  # -20, -18, -16, ..., 28, 30 dB
   snr_range: [-20, 30]
   snr_step: 2
 
 
 # ============================================================
-# Dataset split
+# Dataset Split
 # ============================================================
 
-# Split is stratified jointly by:
-# modulation + SNR
+# Stratified jointly by:
+#   1. Modulation class
+#   2. SNR
+#
+# Total = 100%
 
 train_size: 0.70
 val_size: 0.15
@@ -47,45 +55,71 @@ test_size: 0.15
 # Training
 # ============================================================
 
+# Number of samples processed in one batch
 batch_size: 128
-epochs: 20
+
+# Maximum number of training epochs.
+# Early stopping may terminate training earlier.
+epochs: 60
+
+# Initial learning rate
 learning_rate: 0.001
 
+# AdamW decoupled weight decay
+weight_decay: 0.0001
+
+# CrossEntropyLoss label smoothing.
+# Helps reduce over-confident predictions, especially
+# for ambiguous modulation classes and low-SNR samples.
+label_smoothing: 0.1
+
+# Stop training if validation accuracy does not improve
+# for this many consecutive epochs.
+early_stopping_patience: 7
+
 
 # ============================================================
-# Adversarial training
+# Adversarial Training
 # ============================================================
 
-# Robust model uses PGD adversarial training only.
+# Fraction of each training batch that is adversarially
+# perturbed using PGD.
+#
+# 0.5 = 50% clean + 50% adversarial samples
+#
+# This allows the robust model to learn adversarial
+# robustness while maintaining clean-data performance.
 adv_train_ratio: 0.5
 
 
 # ============================================================
-# Attack parameters
+# Attack Parameters
 # ============================================================
 
+# Perturbation budget for different attacks
 epsilon:
   fgsm: 0.02
   pgd: 0.02
   mim: 0.02
 
+# Number of iterative attack steps
 pgd_steps: 10
 mim_steps: 10
 
 
 # ============================================================
-# C&W
+# C&W Attack Evaluation
 # ============================================================
 
 # C&W is computationally expensive.
-# Evaluate only on a fixed subset per SNR bucket.
+# Evaluate only a fixed number of samples per SNR bucket.
 cw_eval_subset_size: 300
 
 
 # ============================================================
-# Black-box surrogate attack
+# Black-Box Surrogate Attack
 # ============================================================
 
 # Number of queries made to the baseline model
-# to generate labels for surrogate training.
+# to obtain labels for surrogate-model training.
 surrogate_query_budget: 5000

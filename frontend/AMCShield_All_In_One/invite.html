@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>AMCShield — Activate Account</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/invite.css">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="brand-panel" aria-label="AMCShield">
+      <div class="brand">
+        <img src="/assets/amcshield-logo.png" alt="AMCShield" onerror="this.style.display='none'">
+        <div class="brand-fallback">AMC<span>Shield</span></div>
+      </div>
+
+      <div class="brand-copy">
+        <div class="eyebrow">SECURE ACCOUNT PROVISIONING</div>
+        <h1>Activate your<br><span>AMCShield</span> account.</h1>
+        <p>Set your permanent password through this one-time secure invitation.</p>
+      </div>
+
+      <div class="security-line">
+        <span class="dot"></span>
+        <span>INVITATION CHANNEL SECURE</span>
+      </div>
+    </section>
+
+    <section class="card-wrap">
+      <div class="card" id="activationCard">
+        <div class="card-header">
+          <div class="mini-shield">◆</div>
+          <div>
+            <div class="eyebrow">ACCOUNT ACTIVATION</div>
+            <h2 id="pageTitle">Set your password</h2>
+          </div>
+        </div>
+
+        <div id="stateMessage" class="state-message hidden" role="alert" aria-live="polite"></div>
+
+        <div id="loadingState" class="loading-state">
+          <div class="spinner"></div>
+          <p>Verifying your invitation…</p>
+        </div>
+
+        <div id="invalidState" class="state-panel hidden">
+          <div class="state-icon error">!</div>
+          <h3 id="invalidTitle">Invitation unavailable</h3>
+          <p id="invalidText">This invitation is invalid, expired, or has already been used.</p>
+          <a class="secondary-btn" href="/">Return to login</a>
+        </div>
+
+        <form id="activationForm" class="activation-form hidden" novalidate>
+          <div class="identity-box">
+            <span class="label">INVITED ACCOUNT</span>
+            <strong id="userName">—</strong>
+            <span id="userEmail">—</span>
+          </div>
+
+          <div class="field">
+            <label for="password">Create password</label>
+            <div class="password-input">
+              <span class="field-icon">⌑</span>
+              <input id="password" name="password" type="password" autocomplete="new-password"
+                     minlength="12" maxlength="128" placeholder="Enter a strong password" required>
+              <button type="button" class="visibility-btn" id="togglePassword"
+                      aria-label="Show password">SHOW</button>
+            </div>
+            <div class="field-error" id="passwordError"></div>
+          </div>
+
+          <div class="strength">
+            <div class="strength-head">
+              <span>Password strength</span>
+              <strong id="strengthLabel">—</strong>
+            </div>
+            <div class="strength-bar"><i id="strengthBar"></i></div>
+            <ul>
+              <li id="ruleLength">At least 12 characters</li>
+              <li id="ruleUpper">Uppercase and lowercase letters</li>
+              <li id="ruleNumber">At least one number</li>
+              <li id="ruleSpecial">At least one special character</li>
+            </ul>
+          </div>
+
+          <div class="field">
+            <label for="confirmPassword">Confirm password</label>
+            <div class="password-input">
+              <span class="field-icon">⌑</span>
+              <input id="confirmPassword" name="confirmPassword" type="password"
+                     autocomplete="new-password" placeholder="Re-enter your password" required>
+              <button type="button" class="visibility-btn" id="toggleConfirm"
+                      aria-label="Show confirmation password">SHOW</button>
+            </div>
+            <div class="field-error" id="confirmError"></div>
+          </div>
+
+          <label class="terms">
+            <input type="checkbox" id="acceptPolicy">
+            <span>I understand this is my permanent AMCShield account password and I will keep it confidential.</span>
+          </label>
+          <div class="field-error" id="policyError"></div>
+
+          <button class="primary-btn" id="activateBtn" type="submit">
+            <span id="activateBtnText">ACTIVATE ACCOUNT</span>
+            <span class="btn-arrow">→</span>
+          </button>
+
+          <p class="security-note">Your password is sent only to the AMCShield authentication API over the current application session. It is not stored in browser storage.</p>
+        </form>
+
+        <div id="successState" class="state-panel success hidden">
+          <div class="state-icon success-icon">✓</div>
+          <div class="eyebrow">ACTIVATION COMPLETE</div>
+          <h3>Account activated</h3>
+          <p id="successText">Your password has been created successfully. You can now sign in to AMCShield.</p>
+          <a class="primary-btn link-btn" href="/">GO TO LOGIN <span class="btn-arrow">→</span></a>
+        </div>
+      </div>
+
+      <footer>AMCShield © 2026 · Medicaps University · Secure Account Services</footer>
+    </section>
+  </main>
+
+  <script src="/invite.js"></script>
+</body>
+</html>

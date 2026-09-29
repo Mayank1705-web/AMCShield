@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#050807" />
+  <title>AMCShield — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <img src="assets/amcshield-logo.png" alt="AMCShield" />
+      </div>
+
+      <nav class="side-nav" aria-label="Primary navigation">
+        <a class="nav-item active" href="dashboard.html" data-page="dashboard">
+          <span class="nav-icon">⌂</span><span>Dashboard</span>
+        </a>
+        <a class="nav-item" href="dataset.html" data-page="dataset">
+          <span class="nav-icon">◫</span><span>Dataset</span>
+        </a>
+        <a class="nav-item" href="model-training.html" data-page="training">
+          <span class="nav-icon">▣</span><span>Model Training</span>
+        </a>
+        <a class="nav-item" href="adversarial-attacks.html" data-page="attacks">
+          <span class="nav-icon">⌁</span><span>Adversarial Attacks</span>
+        </a>
+        <a class="nav-item" href="evaluation-results.html" data-page="evaluation">
+          <span class="nav-icon">◒</span><span>Evaluation Results</span>
+        </a>
+        <a class="nav-item" href="visualization.html" data-page="visualization">
+          <span class="nav-icon">▥</span><span>Visualization</span>
+        </a>
+        <a class="nav-item" href="reports.html" data-page="reports">
+          <span class="nav-icon">▤</span><span>Reports</span>
+        </a>
+        <a class="nav-item" href="about.html" data-page="about">
+          <span class="nav-icon">ⓘ</span><span>About Project</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="api-status">
+          <span class="status-light"></span>
+          <div>
+            <strong id="apiStatusText">Checking API</strong>
+            <small id="apiStatusDetail">Connecting…</small>
+          </div>
+        </div>
+        <button class="side-action" id="logoutButton" type="button">↪ <span>Logout</span></button>
+      </div>
+    </aside>
+
+    <div class="mobile-overlay" id="mobileOverlay"></div>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn menu-btn" id="menuButton" aria-label="Open navigation">☰</button>
+          <div>
+            <div class="eyebrow">AMCShield / SECURE AI CONSOLE</div>
+            <h1>Dashboard</h1>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <div class="last-updated">
+            <span>LAST UPDATED</span>
+            <strong id="lastUpdated">—</strong>
+          </div>
+          <button class="refresh-btn" id="refreshButton" type="button">
+            <span id="refreshIcon">↻</span> Refresh
+          </button>
+          <div class="profile">
+            <div class="profile-avatar">A</div>
+            <div class="profile-copy">
+              <strong id="userName">User</strong>
+              <small id="userRole">AMCShield Console</small>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="hero-card">
+        <div class="hero-background"></div>
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+          <div class="hero-kicker"><span></span> AIRWAVE DEFENSE / AI RESEARCH</div>
+          <h2>Defending the<br><strong>Airwaves with AI</strong></h2>
+          <p>Monitor model performance, adversarial robustness and spectrum classification results from one secure research console.</p>
+          <div class="hero-actions">
+            <a href="evaluation-results.html" class="gold-btn">Explore Results <span>→</span></a>
+            <a href="visualization.html" class="ghost-btn">Open Visualization</a>
+          </div>
+        </div>
+        <div class="hero-signal">
+          <span class="signal-dot"></span>
+          <span>LIVE EVALUATION FEED</span>
+          <div class="signal-bars" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">SYSTEM OVERVIEW</span>
+          <h2>Mission Metrics</h2>
+        </div>
+        <span class="data-source" id="dataSource">Backend data</span>
+      </div>
+
+      <section class="metric-grid" id="metricGrid" aria-live="polite">
+        <article class="metric-card">
+          <div class="metric-icon gold">◈</div>
+          <div class="metric-label">MODULATION CLASSES</div>
+          <div class="metric-value skeleton" id="metricClasses">—</div>
+          <div class="metric-sub" id="metricClassesSub">Waiting for API</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon cyan">◫</div>
+          <div class="metric-label">TEST SAMPLES</div>
+          <div class="metric-value skeleton" id="metricSamples">—</div>
+          <div class="metric-sub" id="metricSamplesSub">Waiting for API</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon green">◎</div>
+          <div class="metric-label">SNR LEVELS</div>
+          <div class="metric-value skeleton" id="metricSnr">—</div>
+          <div class="metric-sub" id="metricSnrSub">Waiting for API</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon gold">⌁</div>
+          <div class="metric-label">ATTACK METHODS</div>
+          <div class="metric-value skeleton" id="metricAttacks">—</div>
+          <div class="metric-sub" id="metricAttacksSub">Waiting for API</div>
+        </article>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel performance-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">MODEL ANALYSIS</span>
+              <h2>Clean Accuracy vs SNR</h2>
+            </div>
+            <div class="legend" id="performanceLegend">
+              <span><i class="legend-dot baseline"></i>Baseline</span>
+              <span><i class="legend-dot robust"></i>Robust</span>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-loading" id="performanceLoading">Waiting for backend data…</div>
+            <svg id="performanceChart" class="chart" role="img" aria-label="Clean accuracy versus SNR"></svg>
+          </div>
+        </article>
+
+        <article class="panel attack-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">THREAT ANALYSIS</span>
+              <h2>Attack Success Rate</h2>
+            </div>
+            <select id="attackSelect" class="select" aria-label="Select attack method">
+              <option value="">All attacks</option>
+            </select>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-loading" id="attackLoading">Waiting for backend data…</div>
+            <svg id="attackChart" class="chart" role="img" aria-label="Attack success rate versus SNR"></svg>
+          </div>
+        </article>
+      </section>
+
+      <section class="lower-grid">
+        <article class="panel heatmap-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">ROBUSTNESS</span>
+              <h2>Generalization Gap</h2>
+            </div>
+            <span class="unit-label">percentage points</span>
+          </div>
+          <div class="heatmap-wrap" id="heatmapWrap">
+            <div class="chart-loading">Waiting for backend data…</div>
+          </div>
+        </article>
+
+        <article class="panel comparison-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">MODEL COMPARISON</span>
+              <h2>Evaluation Snapshot</h2>
+            </div>
+          </div>
+          <div class="comparison-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Attack</th>
+                  <th>Baseline ASR</th>
+                  <th>Robust ASR</th>
+                  <th>Gap</th>
+                </tr>
+              </thead>
+              <tbody id="comparisonBody">
+                <tr><td colspan="4" class="table-empty">Waiting for backend data…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="snr-panel panel">
+        <div class="panel-header">
+          <div>
+            <span class="section-kicker">SPECTRUM INSPECTION</span>
+            <h2>SNR Analysis</h2>
+          </div>
+          <select id="snrSelect" class="select" aria-label="Select SNR level">
+            <option value="">Select SNR</option>
+          </select>
+        </div>
+        <div class="snr-content" id="snrContent">
+          <div class="snr-empty">Select an SNR level after backend data is loaded.</div>
+        </div>
+      </section>
+
+      <section class="bottom-grid">
+        <article class="panel updates-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">ACTIVITY</span>
+              <h2>Recent Updates</h2>
+            </div>
+          </div>
+          <div id="recentUpdates" class="updates-list">
+            <div class="table-empty">Waiting for backend data…</div>
+          </div>
+        </article>
+
+        <article class="panel quick-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">OPERATIONS</span>
+              <h2>Quick Access</h2>
+            </div>
+          </div>
+          <div class="quick-links">
+            <a href="dataset.html"><span>◫</span><div><strong>Dataset</strong><small>Inspect source data</small></div><b>→</b></a>
+            <a href="model-training.html"><span>▣</span><div><strong>Model Training</strong><small>Training configuration</small></div><b>→</b></a>
+            <a href="adversarial-attacks.html"><span>⌁</span><div><strong>Adversarial Attacks</strong><small>Attack evaluation</small></div><b>→</b></a>
+            <a href="reports.html"><span>▤</span><div><strong>Reports</strong><small>Research outputs</small></div><b>→</b></a>
+          </div>
+        </article>
+      </section>
+
+      <footer>
+        <span>AMCShield © 2026</span>
+        <span>Medicaps University · Department of Computer Science & Engineering</span>
+        <span>Secure AI Research Console</span>
+      </footer>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

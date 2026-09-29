@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AMCShield — Admin Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar">
+<div class="brand"><img src="/assets/amcshield-logo.png" alt="AMCShield"></div>
+<nav class="nav">
+<a href="/dashboard.html" class="nav-item">⌂<span>Dashboard</span></a>
+<a href="/dataset.html" class="nav-item">▥<span>Dataset</span></a>
+<a href="/model-training.html" class="nav-item">▣<span>Model Training</span></a>
+<a href="/adversarial-attacks.html" class="nav-item">⌁<span>Adversarial Attacks</span></a>
+<a href="/evaluation-results.html" class="nav-item">◉<span>Evaluation Results</span></a>
+<a href="/visualization.html" class="nav-item">▥<span>Visualization</span></a>
+<a href="/reports.html" class="nav-item">▤<span>Reports</span></a>
+<a href="/about.html" class="nav-item">ⓘ<span>About Project</span></a>
+<a href="/admin.html" class="nav-item active">⚙<span>Admin Inbox</span><b id="sidebarNewCount">0</b></a>
+</nav>
+<div class="sidebar-footer"><div class="system-status"><i></i><div><strong>ADMIN MODE</strong><small>Privileged console</small></div></div><button class="logout-btn" id="logoutBtn">↪ Logout</button></div>
+</aside>
+<main class="main">
+<header class="topbar"><div><div class="eyebrow">AMCSHIELD / ADMIN CONSOLE</div><h1>Contact Requests</h1></div><div class="top-actions"><span class="live">● LIVE ADMIN SESSION</span><button id="refreshBtn">↻ Refresh</button><div class="user-chip"><div class="avatar" id="userAvatar">A</div><div><strong id="adminName">Administrator</strong><small id="adminRole">Administrator</small></div></div></div></header>
+<section class="stats-grid">
+<div class="stat"><span>Total Requests</span><strong id="countTotal">0</strong></div><div class="stat new"><span>New</span><strong id="countNew">0</strong></div><div class="stat read"><span>Read</span><strong id="countRead">0</strong></div><div class="stat replied"><span>Replied</span><strong id="countReplied">0</strong></div><div class="stat closed"><span>Closed</span><strong id="countClosed">0</strong></div>
+</section>
+<section class="workspace">
+<div class="panel inbox"><div class="panel-head"><div><small>INBOX</small><h2>Incoming Messages</h2></div><div class="filters"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="new">New</button><button class="filter" data-filter="read">Read</button><button class="filter" data-filter="replied">Replied</button><button class="filter" data-filter="closed">Closed</button></div></div>
+<div class="toolbar"><div class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="Search sender, subject or message..."></div><span id="resultCount">0 requests</span></div>
+<div class="message-list" id="messageList"><div class="empty"><div>◌</div><h3>Loading inbox...</h3><p>Retrieving administrator messages.</p></div></div></div>
+<aside class="panel detail" id="detailPanel"><div class="detail-empty" id="detailEmpty"><div>✉</div><h2>Select a request</h2><p>Select a message to inspect it and change its status.</p></div>
+<div class="detail-content hidden" id="detailContent"><div class="detail-head"><div><small>REQUEST DETAIL</small><h2 id="detailSubject">—</h2></div><span id="detailStatus" class="status-pill status-new">NEW</span></div>
+<div class="sender"><div id="detailAvatar">M</div><div><strong id="detailName">—</strong><a id="detailEmail" href="#">—</a></div></div>
+<div class="meta"><div><span>REQUEST ID</span><strong id="detailId">—</strong></div><div><span>SUBMITTED</span><strong id="detailDate">—</strong></div></div>
+<div class="body"><span>MESSAGE</span><p id="detailMessage">—</p></div>
+<div class="status-control"><label>UPDATE STATUS</label><select id="statusSelect"><option value="new">NEW</option><option value="read">READ</option><option value="replied">REPLIED</option><option value="closed">CLOSED</option></select><button id="saveStatusBtn">SAVE STATUS</button></div>
+<div id="detailNotice"></div></div></aside>
+</section><div id="toast"></div>
+</main></div>
+<script src="/admin.js"></script>
+</body></html>

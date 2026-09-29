@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#050807">
+  <title>AMCShield — Model Training</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="model-training.css">
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand"><img src="assets/amcshield-logo.png" alt="AMCShield"></div>
+    <nav class="side-nav">
+      <a class="nav-item" href="dashboard.html"><span>⌂</span>Dashboard</a>
+      <a class="nav-item" href="dataset.html"><span>◫</span>Dataset</a>
+      <a class="nav-item active" href="model-training.html"><span>▣</span>Model Training</a>
+      <a class="nav-item" href="adversarial-attacks.html"><span>⌁</span>Adversarial Attacks</a>
+      <a class="nav-item" href="evaluation-results.html"><span>◒</span>Evaluation Results</a>
+      <a class="nav-item" href="visualization.html"><span>▥</span>Visualization</a>
+      <a class="nav-item" href="reports.html"><span>▤</span>Reports</a>
+      <a class="nav-item" href="about.html"><span>ⓘ</span>About Project</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="api-status" id="apiStatus"><i></i><div><strong id="apiText">Checking API</strong><small id="apiDetail">Connecting…</small></div></div>
+      <button class="logout" id="logout">↪ &nbsp; Logout</button>
+    </div>
+  </aside>
+  <div class="overlay" id="overlay"></div>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title-area">
+        <button class="menu" id="menu">☰</button>
+        <div><div class="eyebrow">AMCSHIELD / MODEL LAB</div><h1>Model Training</h1></div>
+      </div>
+      <div class="top-actions">
+        <div class="source-status"><span>TRAINING ENGINE</span><strong id="engineStatus">Backend</strong></div>
+        <button class="refresh" id="refresh">↻ Refresh</button>
+        <div class="avatar">A</div>
+      </div>
+    </header>
+
+    <section class="training-hero">
+      <div class="hero-bg"></div><div class="hero-shade"></div>
+      <div class="hero-copy">
+        <div class="kicker"><b></b> ROBUST AI MODEL LAB / TRAINING CONTROL</div>
+        <h2>Build Models for the<br><strong>Signal Battlefield</strong></h2>
+        <p>Monitor training runs, compare model configurations, inspect convergence and track checkpoint status from a single secure research console.</p>
+        <div class="hero-tags"><span>BASELINE</span><span>ROBUST CNN</span><span>CHECKPOINTS</span><span>GPU</span></div>
+      </div>
+      <div class="run-state" id="runState"><span class="pulse"></span><div><strong id="runStateText">AWAITING STATUS</strong><small id="runStateDetail">Training backend</small></div></div>
+    </section>
+
+    <div class="section-head">
+      <div><span class="section-kicker">TRAINING OVERVIEW</span><h2>Mission Control</h2></div>
+      <span class="backend-note" id="updated">Not loaded</span>
+    </div>
+
+    <section class="metric-grid">
+      <article class="metric"><span class="metric-icon gold">◈</span><label>ACTIVE RUN</label><strong id="activeRun">—</strong><small id="activeRunDetail">Backend value</small></article>
+      <article class="metric"><span class="metric-icon cyan">◫</span><label>EPOCH</label><strong id="epoch">—</strong><small id="epochDetail">Awaiting run</small></article>
+      <article class="metric"><span class="metric-icon green">◎</span><label>TRAIN ACCURACY</label><strong id="trainAcc">—</strong><small id="trainLoss">Loss: —</small></article>
+      <article class="metric"><span class="metric-icon gold">◇</span><label>VALIDATION</label><strong id="valAcc">—</strong><small id="valLoss">Loss: —</small></article>
+      <article class="metric"><span class="metric-icon cyan">⚡</span><label>DEVICE</label><strong id="device">—</strong><small id="deviceDetail">Backend hardware</small></article>
+      <article class="metric"><span class="metric-icon green">✓</span><label>CHECKPOINT</label><strong id="checkpoint">—</strong><small id="checkpointDetail">Status from backend</small></article>
+    </section>
+
+    <section class="control-grid">
+      <article class="panel run-panel">
+        <div class="panel-head">
+          <div><span class="section-kicker">TRAINING CONTROL</span><h2>Run Configuration</h2></div>
+          <span class="badge" id="configBadge">Backend</span>
+        </div>
+        <div class="config-grid" id="configGrid"><div class="empty">Waiting for training configuration…</div></div>
+        <div class="control-actions">
+          <button class="primary" id="startRun">▶ Start Training</button>
+          <button class="secondary" id="stopRun">■ Stop Run</button>
+        </div>
+        <div class="command-status" id="commandStatus">Training actions are disabled until the backend exposes the corresponding endpoint.</div>
+      </article>
+
+      <article class="panel progress-panel">
+        <div class="panel-head">
+          <div><span class="section-kicker">CURRENT OPERATION</span><h2>Training Progress</h2></div>
+          <strong class="progress-number" id="progressPct">—</strong>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-meta"><span id="progressLabel">No active run</span><span id="eta">ETA —</span></div>
+        <div class="phase-list" id="phaseList"><div class="empty">Waiting for backend progress…</div></div>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel chart-panel">
+        <div class="panel-head"><div><span class="section-kicker">CONVERGENCE</span><h2>Accuracy by Epoch</h2></div><span class="unit">percent</span></div>
+        <div class="chart" id="accuracyChart"><div class="empty">Training history will be plotted from the backend.</div></div>
+      </article>
+      <article class="panel chart-panel">
+        <div class="panel-head"><div><span class="section-kicker">OPTIMIZATION</span><h2>Loss by Epoch</h2></div><span class="unit">loss</span></div>
+        <div class="chart" id="lossChart"><div class="empty">Training history will be plotted from the backend.</div></div>
+      </article>
+    </section>
+
+    <section class="content-grid lower">
+      <article class="panel model-panel">
+        <div class="panel-head"><div><span class="section-kicker">MODEL REGISTRY</span><h2>Available Models</h2></div><span class="badge">Backend</span></div>
+        <div class="model-list" id="modelList"><div class="empty">Waiting for registered models…</div></div>
+      </article>
+      <article class="panel checkpoint-panel">
+        <div class="panel-head"><div><span class="section-kicker">ARTIFACT CONTROL</span><h2>Checkpoints</h2></div><span class="unit">latest</span></div>
+        <div class="checkpoint-list" id="checkpointList"><div class="empty">Waiting for checkpoint metadata…</div></div>
+      </article>
+    </section>
+
+    <section class="panel log-panel">
+      <div class="panel-head"><div><span class="section-kicker">TRAINING TELEMETRY</span><h2>Live Run Log</h2></div><button class="clear-log" id="clearLog">Clear view</button></div>
+      <div class="log-window" id="logWindow"><div class="log-empty">No telemetry received from backend.</div></div>
+    </section>
+
+    <footer><span>AMCShield © 2026</span><span>Medicaps University · Computer Science & Engineering</span><span>Secure AI Research Console</span></footer>
+  </main>
+</div>
+<script src="model-training.js"></script>
+</body>
+</html>

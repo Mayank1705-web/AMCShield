@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#050807">
+<title>AMCShield — Adversarial Attacks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="adversarial-attacks.css">
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand"><img src="assets/amcshield-logo.png" alt="AMCShield"></div>
+  <nav class="side-nav">
+    <a class="nav-item" href="dashboard.html"><span>⌂</span>Dashboard</a>
+    <a class="nav-item" href="dataset.html"><span>◫</span>Dataset</a>
+    <a class="nav-item" href="model-training.html"><span>▣</span>Model Training</a>
+    <a class="nav-item active" href="adversarial-attacks.html"><span>⌁</span>Adversarial Attacks</a>
+    <a class="nav-item" href="evaluation-results.html"><span>◒</span>Evaluation Results</a>
+    <a class="nav-item" href="visualization.html"><span>▥</span>Visualization</a>
+    <a class="nav-item" href="reports.html"><span>▤</span>Reports</a>
+    <a class="nav-item" href="about.html"><span>ⓘ</span>About Project</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="api-status" id="apiStatus"><i></i><div><strong id="apiText">Checking API</strong><small id="apiDetail">Connecting…</small></div></div>
+    <button class="logout" id="logout">↪ &nbsp; Logout</button>
+  </div>
+</aside>
+<div class="overlay" id="overlay"></div>
+
+<main class="main">
+<header class="topbar">
+  <div class="title-area">
+    <button class="menu" id="menu">☰</button>
+    <div><div class="eyebrow">AMCSHIELD / THREAT LAB</div><h1>Adversarial Attacks</h1></div>
+  </div>
+  <div class="top-actions">
+    <div class="source-status"><span>ATTACK ENGINE</span><strong id="engineStatus">Backend</strong></div>
+    <button class="refresh" id="refresh">↻ Refresh</button>
+    <div class="avatar">A</div>
+  </div>
+</header>
+
+<section class="attack-hero">
+  <div class="hero-bg"></div><div class="hero-shade"></div>
+  <div class="hero-copy">
+    <div class="kicker"><b></b> ADVERSARIAL ROBUSTNESS / THREAT SIMULATION</div>
+    <h2>Stress the Model.<br><strong>Protect the Signal.</strong></h2>
+    <p>Configure and inspect adversarial evaluations against AMCShield models across gradient-based, optimization-based and black-box threat scenarios.</p>
+    <div class="hero-tags"><span>FGSM</span><span>PGD</span><span>MIM</span><span>C&amp;W</span><span>BLACK-BOX</span></div>
+  </div>
+  <div class="threat-state" id="threatState"><span class="pulse"></span><div><strong id="threatText">AWAITING STATUS</strong><small id="threatDetail">Attack backend</small></div></div>
+</section>
+
+<div class="section-head">
+  <div><span class="section-kicker">THREAT OVERVIEW</span><h2>Attack Mission Control</h2></div>
+  <span class="backend-note" id="updated">Not loaded</span>
+</div>
+
+<section class="metric-grid">
+  <article class="metric"><span class="metric-icon gold">⌁</span><label>ACTIVE ATTACK</label><strong id="activeAttack">—</strong><small id="activeAttackDetail">Backend value</small></article>
+  <article class="metric"><span class="metric-icon cyan">◎</span><label>ATTACK STATUS</label><strong id="attackStatus">—</strong><small id="attackStatusDetail">Awaiting run</small></article>
+  <article class="metric"><span class="metric-icon red">⚠</span><label>ATTACK SUCCESS</label><strong id="meanASR">—</strong><small id="meanASRDetail">Backend metric</small></article>
+  <article class="metric"><span class="metric-icon gold">◇</span><label>ACCURACY AFTER ATTACK</label><strong id="attackAccuracy">—</strong><small id="attackAccuracyDetail">Backend metric</small></article>
+  <article class="metric"><span class="metric-icon cyan">ε</span><label>PERTURBATION ε</label><strong id="epsilon">—</strong><small id="epsilonDetail">Threat constraint</small></article>
+  <article class="metric"><span class="metric-icon green">⌁</span><label>QUERY BUDGET</label><strong id="queryBudget">—</strong><small id="queryBudgetDetail">Black-box only</small></article>
+</section>
+
+<section class="control-grid">
+<article class="panel configure-panel">
+  <div class="panel-head"><div><span class="section-kicker">THREAT CONFIGURATION</span><h2>Attack Parameters</h2></div><span class="badge" id="configBadge">Backend</span></div>
+  <div class="form-grid">
+    <label>Target Model<select id="targetModel"><option value="">Loading…</option></select></label>
+    <label>Attack Method<select id="attackMethod"><option value="">Loading…</option></select></label>
+    <label>ε / Budget<input id="epsilonInput" type="number" step="any" placeholder="Backend value"></label>
+    <label>Steps / Iterations<input id="stepsInput" type="number" min="1" step="1" placeholder="Backend value"></label>
+    <label>SNR Level<select id="snrInput"><option value="">All SNR</option></select></label>
+    <label>Samples / SNR<input id="sampleInput" type="number" min="1" step="1" placeholder="Backend value"></label>
+  </div>
+  <div class="action-row">
+    <button class="primary" id="launchAttack">▶ Run Attack</button>
+    <button class="secondary" id="cancelAttack">■ Stop</button>
+  </div>
+  <div class="command-status" id="commandStatus">Attack execution is controlled by FastAPI. The browser never fabricates evaluation results.</div>
+</article>
+
+<article class="panel live-panel">
+  <div class="panel-head"><div><span class="section-kicker">LIVE OPERATION</span><h2>Attack Progress</h2></div><strong class="progress-number" id="progressPct">—</strong></div>
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="progress-meta"><span id="progressLabel">No active attack</span><span id="eta">ETA —</span></div>
+  <div class="operation-grid">
+    <div><span>Processed</span><strong id="processed">—</strong></div>
+    <div><span>Remaining</span><strong id="remaining">—</strong></div>
+    <div><span>Current SNR</span><strong id="currentSnr">—</strong></div>
+    <div><span>Queries</span><strong id="queries">—</strong></div>
+  </div>
+  <div class="attack-log" id="attackLog"><div class="log-empty">No attack telemetry received.</div></div>
+</article>
+</section>
+
+<section class="content-grid">
+<article class="panel attack-table-panel">
+  <div class="panel-head"><div><span class="section-kicker">THREAT COMPARISON</span><h2>Attack Performance</h2></div><span class="unit">backend results</span></div>
+  <div class="table-wrap">
+    <table><thead><tr><th>Attack</th><th>Clean Acc.</th><th>Attack Acc.</th><th>ASR</th><th>Mean L∞</th><th>Mean L2</th><th>Status</th></tr></thead>
+    <tbody id="attackTable"><tr><td colspan="7"><div class="empty">Waiting for attack results…</div></td></tr></tbody></table>
+  </div>
+</article>
+
+<article class="panel threat-profile">
+  <div class="panel-head"><div><span class="section-kicker">THREAT PROFILE</span><h2>Attack Success by SNR</h2></div><span class="unit">percent</span></div>
+  <div class="snr-chart" id="snrChart"><div class="empty">Waiting for backend SNR attack profile…</div></div>
+</article>
+</section>
+
+<section class="content-grid lower">
+<article class="panel method-panel">
+  <div class="panel-head"><div><span class="section-kicker">ATTACK METHODS</span><h2>Method Registry</h2></div><span class="badge">Backend</span></div>
+  <div class="method-list" id="methodList"><div class="empty">Waiting for attack method metadata…</div></div>
+</article>
+<article class="panel perturb-panel">
+  <div class="panel-head"><div><span class="section-kicker">PERTURBATION INTELLIGENCE</span><h2>Constraint Profile</h2></div></div>
+  <div class="constraint-grid" id="constraintGrid"><div class="empty">Waiting for perturbation metadata…</div></div>
+</article>
+</section>
+
+<section class="panel detail-panel">
+  <div class="panel-head"><div><span class="section-kicker">SELECTED THREAT</span><h2>Attack Detail</h2></div><span class="badge" id="detailBadge">Backend</span></div>
+  <div class="detail-grid" id="detailGrid"><div class="empty">Select an attack row to inspect its backend-provided details.</div></div>
+</section>
+
+<footer><span>AMCShield © 2026</span><span>Medicaps University · Computer Science &amp; Engineering</span><span>Secure AI Research Console</span></footer>
+</main>
+</div>
+<script src="adversarial-attacks.js"></script>
+</body>
+</html>

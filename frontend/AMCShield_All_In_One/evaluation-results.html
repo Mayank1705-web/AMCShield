@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#050807">
+<title>AMCShield — Evaluation Results</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="evaluation-results.css">
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand"><img src="assets/amcshield-logo.png" alt="AMCShield"></div>
+  <nav class="side-nav">
+    <a class="nav-item" href="dashboard.html"><span>⌂</span>Dashboard</a>
+    <a class="nav-item" href="dataset.html"><span>◫</span>Dataset</a>
+    <a class="nav-item" href="model-training.html"><span>▣</span>Model Training</a>
+    <a class="nav-item" href="adversarial-attacks.html"><span>⌁</span>Adversarial Attacks</a>
+    <a class="nav-item active" href="evaluation-results.html"><span>◒</span>Evaluation Results</a>
+    <a class="nav-item" href="visualization.html"><span>▥</span>Visualization</a>
+    <a class="nav-item" href="reports.html"><span>▤</span>Reports</a>
+    <a class="nav-item" href="about.html"><span>ⓘ</span>About Project</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="api-status" id="apiStatus"><i></i><div><strong id="apiText">Checking API</strong><small id="apiDetail">Connecting…</small></div></div>
+    <button class="logout" id="logout">↪ &nbsp; Logout</button>
+  </div>
+</aside>
+<div class="overlay" id="overlay"></div>
+
+<main class="main">
+<header class="topbar">
+  <div class="title-area">
+    <button class="menu" id="menu">☰</button>
+    <div><div class="eyebrow">AMCSHIELD / EVALUATION LAB</div><h1>Evaluation Results</h1></div>
+  </div>
+  <div class="top-actions">
+    <div class="source-status"><span>RESULT SOURCE</span><strong id="sourceStatus">Backend</strong></div>
+    <button class="refresh" id="refresh">↻ Refresh</button>
+    <div class="avatar">A</div>
+  </div>
+</header>
+
+<section class="results-hero">
+  <div class="hero-bg"></div><div class="hero-shade"></div>
+  <div class="hero-copy">
+    <div class="kicker"><b></b> MODEL VALIDATION / ADVERSARIAL EVALUATION</div>
+    <h2>Read the Results.<br><strong>Measure the Shield.</strong></h2>
+    <p>Review clean performance, adversarial robustness, attack success, and baseline-versus-robust model behavior across the complete SNR range.</p>
+    <div class="hero-tags"><span>CLEAN</span><span>FGSM</span><span>PGD</span><span>MIM</span><span>C&amp;W</span><span>BLACK-BOX</span></div>
+  </div>
+  <div class="result-state" id="resultState"><span class="pulse"></span><div><strong id="resultStateText">AWAITING RESULTS</strong><small id="resultStateDetail">Evaluation backend</small></div></div>
+</section>
+
+<div class="section-head">
+  <div><span class="section-kicker">RESULT OVERVIEW</span><h2>Evaluation Command</h2></div>
+  <span class="backend-note" id="updated">Not loaded</span>
+</div>
+
+<section class="metric-grid">
+  <article class="metric"><span class="metric-icon green">◎</span><label>ROBUST CLEAN ACCURACY</label><strong id="robustClean">—</strong><small id="robustCleanDetail">Backend metric</small></article>
+  <article class="metric"><span class="metric-icon gold">◈</span><label>BASELINE CLEAN ACCURACY</label><strong id="baselineClean">—</strong><small id="baselineCleanDetail">Backend metric</small></article>
+  <article class="metric"><span class="metric-icon cyan">⌁</span><label>MEAN ROBUST ASR</label><strong id="robustASR">—</strong><small id="robustASRDetail">All attacks</small></article>
+  <article class="metric"><span class="metric-icon red">⚠</span><label>MEAN BASELINE ASR</label><strong id="baselineASR">—</strong><small id="baselineASRDetail">All attacks</small></article>
+  <article class="metric"><span class="metric-icon gold">Δ</span><label>GENERALIZATION GAP</label><strong id="meanGap">—</strong><small id="meanGapDetail">Percentage points</small></article>
+  <article class="metric"><span class="metric-icon cyan">◒</span><label>SNR LEVELS</label><strong id="snrCount">—</strong><small id="snrRange">Backend range</small></article>
+</section>
+
+<section class="filter-panel panel">
+  <div class="panel-head">
+    <div><span class="section-kicker">RESULT FILTERS</span><h2>Evaluation Scope</h2></div>
+    <span class="badge" id="filterBadge">Backend</span>
+  </div>
+  <div class="filter-grid">
+    <label>Model<select id="modelFilter"><option value="">All models</option></select></label>
+    <label>Attack<select id="attackFilter"><option value="">All attacks</option></select></label>
+    <label>SNR<select id="snrFilter"><option value="">All SNR</option></select></label>
+    <label>Metric<select id="metricFilter"><option value="asr">Attack Success Rate</option><option value="accuracy">Accuracy</option><option value="gap">Generalization Gap</option></select></label>
+    <button class="primary" id="applyFilter">Apply</button>
+    <button class="secondary" id="resetFilter">Reset</button>
+  </div>
+</section>
+
+<section class="content-grid">
+<article class="panel comparison-panel">
+  <div class="panel-head"><div><span class="section-kicker">MODEL COMPARISON</span><h2>Robust vs Baseline</h2></div><span class="unit">percent</span></div>
+  <div class="comparison-chart" id="comparisonChart"><div class="empty">Waiting for backend comparison data…</div></div>
+</article>
+
+<article class="panel attack-summary-panel">
+  <div class="panel-head"><div><span class="section-kicker">ATTACK SUMMARY</span><h2>Threat-by-Threat Results</h2></div><span class="unit">mean</span></div>
+  <div class="attack-summary" id="attackSummary"><div class="empty">Waiting for backend attack summary…</div></div>
+</article>
+</section>
+
+<section class="panel result-table-panel">
+  <div class="panel-head">
+    <div><span class="section-kicker">DETAILED RESULTS</span><h2>Evaluation Matrix</h2></div>
+    <div class="table-actions"><span id="rowCount">0 rows</span><button class="secondary small" id="exportCsv">Export CSV</button></div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Attack</th><th>SNR</th><th>Baseline ASR</th><th>Robust ASR</th><th>Gap</th><th>Baseline Acc.</th><th>Robust Acc.</th><th>Samples</th></tr></thead>
+      <tbody id="resultTable"><tr><td colspan="8"><div class="empty">No evaluation rows returned.</div></td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="content-grid lower">
+<article class="panel snr-panel">
+  <div class="panel-head"><div><span class="section-kicker">SNR ANALYSIS</span><h2>Accuracy Across Signal Conditions</h2></div><span class="unit">percent</span></div>
+  <div class="line-chart" id="accuracyChart"><div class="empty">Waiting for backend SNR accuracy data…</div></div>
+</article>
+<article class="panel gap-panel">
+  <div class="panel-head"><div><span class="section-kicker">ROBUSTNESS DELTA</span><h2>Generalization Gap by SNR</h2></div><span class="unit">pp</span></div>
+  <div class="gap-bars" id="gapChart"><div class="empty">Waiting for backend gap data…</div></div>
+</article>
+</section>
+
+<section class="panel insight-panel">
+  <div class="panel-head"><div><span class="section-kicker">EVALUATION NOTES</span><h2>Backend Findings</h2></div><span class="badge">Backend</span></div>
+  <div class="insight-grid" id="insightGrid"><div class="empty">No evaluation findings returned by backend.</div></div>
+</section>
+
+<footer><span>AMCShield © 2026</span><span>Medicaps University · Computer Science &amp; Engineering</span><span>Secure AI Research Console</span></footer>
+</main>
+</div>
+<script src="evaluation-results.js"></script>
+</body>
+</html>

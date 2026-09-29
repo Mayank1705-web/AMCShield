@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#050807">
+  <title>AMCShield — Dataset</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dataset.css">
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <img src="assets/amcshield-logo.png" alt="AMCShield">
+    </div>
+    <nav class="side-nav">
+      <a class="nav-item" href="dashboard.html"><span>⌂</span>Dashboard</a>
+      <a class="nav-item active" href="dataset.html"><span>◫</span>Dataset</a>
+      <a class="nav-item" href="model-training.html"><span>▣</span>Model Training</a>
+      <a class="nav-item" href="adversarial-attacks.html"><span>⌁</span>Adversarial Attacks</a>
+      <a class="nav-item" href="evaluation-results.html"><span>◒</span>Evaluation Results</a>
+      <a class="nav-item" href="visualization.html"><span>▥</span>Visualization</a>
+      <a class="nav-item" href="reports.html"><span>▤</span>Reports</a>
+      <a class="nav-item" href="about.html"><span>ⓘ</span>About Project</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="api-status" id="apiStatus">
+        <i></i><div><strong id="apiText">Checking API</strong><small id="apiDetail">Connecting…</small></div>
+      </div>
+      <button class="logout" id="logout">↪ &nbsp; Logout</button>
+    </div>
+  </aside>
+
+  <div class="overlay" id="overlay"></div>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title-area">
+        <button class="menu" id="menu">☰</button>
+        <div>
+          <div class="eyebrow">AMCShield / DATA INTELLIGENCE</div>
+          <h1>Dataset</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="source-status"><span>DATA SOURCE</span><strong id="sourceName">Backend</strong></div>
+        <button class="refresh" id="refresh">↻ Refresh</button>
+        <div class="avatar" id="avatar">A</div>
+      </div>
+    </header>
+
+    <section class="dataset-hero">
+      <div class="hero-bg"></div>
+      <div class="hero-shade"></div>
+      <div class="hero-copy">
+        <div class="kicker"><b></b> RADIO FREQUENCY DATASET / SIGNAL INTELLIGENCE</div>
+        <h2>Understand the<br><strong>Signal Battlefield</strong></h2>
+        <p>Inspect the dataset used by AMCShield for automatic modulation classification under clean and adversarial conditions.</p>
+        <div class="hero-tags">
+          <span>DATASET PROFILE</span>
+          <span>CLASS DISTRIBUTION</span>
+          <span>SNR ANALYSIS</span>
+        </div>
+      </div>
+      <div class="dataset-status">
+        <span class="pulse"></span>
+        <div><strong id="datasetStatus">AWAITING DATA</strong><small id="datasetStatusDetail">Backend dataset metadata</small></div>
+      </div>
+    </section>
+
+    <div class="section-head">
+      <div><span class="section-kicker">DATASET OVERVIEW</span><h2>Mission Data</h2></div>
+      <span class="backend-note" id="lastUpdated">Not loaded</span>
+    </div>
+
+    <section class="metric-grid">
+      <article class="metric">
+        <span class="metric-icon gold">◈</span>
+        <label>DATASET</label>
+        <strong id="datasetName">—</strong>
+        <small id="datasetPath">Backend value</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon cyan">◫</span>
+        <label>TOTAL SAMPLES</label>
+        <strong id="totalSamples">—</strong>
+        <small id="sampleSplit">Awaiting metadata</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon green">◎</span>
+        <label>MODULATION CLASSES</label>
+        <strong id="classCount">—</strong>
+        <small id="classDetail">Awaiting metadata</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon gold">⌁</span>
+        <label>SIGNAL LENGTH</label>
+        <strong id="signalLength">—</strong>
+        <small id="inputShape">Awaiting metadata</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon cyan">≈</span>
+        <label>SNR LEVELS</label>
+        <strong id="snrLevels">—</strong>
+        <small id="snrRange">Awaiting metadata</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon green">↗</span>
+        <label>INPUT CHANNELS</label>
+        <strong id="channels">—</strong>
+        <small id="channelDetail">Awaiting metadata</small>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel distribution">
+        <div class="panel-head">
+          <div><span class="section-kicker">CLASS INTELLIGENCE</span><h2>Modulation Class Distribution</h2></div>
+          <span class="unit">samples</span>
+        </div>
+        <div class="bar-chart" id="classChart"><div class="empty">Waiting for backend class distribution…</div></div>
+      </article>
+
+      <article class="panel snr-panel">
+        <div class="panel-head">
+          <div><span class="section-kicker">SIGNAL CONDITIONS</span><h2>SNR Distribution</h2></div>
+          <span class="unit">dB</span>
+        </div>
+        <div class="snr-chart" id="snrChart"><div class="empty">Waiting for backend SNR distribution…</div></div>
+      </article>
+    </section>
+
+    <section class="content-grid second">
+      <article class="panel metadata">
+        <div class="panel-head">
+          <div><span class="section-kicker">DATA CONTRACT</span><h2>Dataset Specification</h2></div>
+          <span class="badge" id="formatBadge">Backend</span>
+        </div>
+        <div class="spec-grid" id="specGrid">
+          <div class="empty">Waiting for backend metadata…</div>
+        </div>
+      </article>
+
+      <article class="panel splits">
+        <div class="panel-head">
+          <div><span class="section-kicker">EXPERIMENT SPLITS</span><h2>Train / Validation / Test</h2></div>
+        </div>
+        <div class="split-list" id="splitList">
+          <div class="empty">Waiting for backend split information…</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel sample-panel">
+      <div class="panel-head">
+        <div><span class="section-kicker">SIGNAL INSPECTION</span><h2>Sample Preview</h2></div>
+        <div class="sample-actions">
+          <select id="classSelect"><option value="">Select class</option></select>
+          <select id="snrSelect"><option value="">Select SNR</option></select>
+          <button id="loadSample">Load Sample</button>
+        </div>
+      </div>
+      <div class="sample-area" id="sampleArea">
+        <div class="sample-placeholder">
+          <div class="radar">⌁</div>
+          <strong>Select signal parameters</strong>
+          <span>The waveform preview will be fetched from the backend. No sample is embedded in the frontend.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel quality-panel">
+      <div class="panel-head">
+        <div><span class="section-kicker">DATA QUALITY</span><h2>Integrity Checks</h2></div>
+        <span class="badge" id="qualityBadge">Backend</span>
+      </div>
+      <div class="quality-grid" id="qualityGrid">
+        <div class="empty">Waiting for backend quality checks…</div>
+      </div>
+    </section>
+
+    <footer>
+      <span>AMCShield © 2026</span>
+      <span>Medicaps University · Computer Science & Engineering</span>
+      <span>Secure AI Research Console</span>
+    </footer>
+  </main>
+</div>
+<script src="dataset.js"></script>
+</body>
+</html>

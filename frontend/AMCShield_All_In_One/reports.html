@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="theme-color" content="#050807"><title>AMCShield — Reports</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="reports.css">
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+<div class="shell">
+<aside class="sidebar" id="sidebar">
+  <div class="brand"><img src="assets/amcshield-logo.png" alt="AMCShield"></div>
+  <nav>
+    <a href="dashboard.html">⌂ <span>Dashboard</span></a>
+    <a href="dataset.html">◫ <span>Dataset</span></a>
+    <a href="model-training.html">▣ <span>Model Training</span></a>
+    <a href="adversarial-attacks.html">⌁ <span>Adversarial Attacks</span></a>
+    <a href="evaluation-results.html">◒ <span>Evaluation Results</span></a>
+    <a href="visualization.html">▥ <span>Visualization</span></a>
+    <a class="active" href="reports.html">▤ <span>Reports</span></a>
+    <a href="about.html">ⓘ <span>About Project</span></a>
+  </nav>
+  <div class="side-bottom">
+    <div class="api" id="api"><i></i><div><b id="apiText">CHECKING API</b><small id="apiDetail">Connecting…</small></div></div>
+    <button class="logout" id="logout">↪ &nbsp; Logout</button>
+  </div>
+</aside>
+<div class="overlay" id="overlay"></div>
+
+<main class="main">
+<header class="topbar">
+  <div class="title"><button class="menu" id="menu">☰</button><div><span>AMCSHIELD / REPORTING CONSOLE</span><h1>Reports</h1></div></div>
+  <div class="actions"><div class="source"><small>REPORT SOURCE</small><b id="source">Backend</b></div><button id="refresh">↻ Refresh</button><div class="avatar">A</div></div>
+</header>
+
+<section class="hero">
+  <div class="hero-bg"></div><div class="shade"></div>
+  <div class="hero-copy">
+    <div class="kicker"><i></i> EXPERIMENT RECORD / REPORT GENERATION</div>
+    <h2>Package the Evidence.<br><strong>Report the Shield.</strong></h2>
+    <p>Generate backend-backed experiment reports from the validated AMCShield evaluation pipeline, with traceable metrics, attack results, methodology, and downloadable artifacts.</p>
+    <div class="chips"><span>EXECUTIVE SUMMARY</span><span>METHODS</span><span>RESULTS</span><span>ROBUSTNESS</span><span>ARTIFACTS</span></div>
+  </div>
+  <div class="live"><i></i><div><b id="liveText">REPORT ENGINE READY</b><small id="liveDetail">Waiting for backend</small></div></div>
+</section>
+
+<div class="section-head"><div><span>REPORT OVERVIEW</span><h2>Mission Record</h2></div><small id="updated">Not loaded</small></div>
+<section class="kpis">
+  <div class="kpi"><em>▤</em><label>AVAILABLE REPORTS</label><strong id="reportCount">—</strong><small>Backend records</small></div>
+  <div class="kpi"><em>◎</em><label>ROBUST CLEAN ACCURACY</label><strong id="cleanAcc">—</strong><small>Validated test result</small></div>
+  <div class="kpi"><em>⚠</em><label>MEAN ROBUST ASR</label><strong id="robustAsr">—</strong><small>Configured attacks</small></div>
+  <div class="kpi"><em>Δ</em><label>MEAN GENERALIZATION GAP</label><strong id="gap">—</strong><small>Percentage points</small></div>
+</section>
+
+<section class="panel report-builder">
+  <div class="panel-head"><div><span>REPORT BUILDER</span><h2>Generate Experiment Package</h2></div><span class="badge">BACKEND</span></div>
+  <div class="builder-grid">
+    <label>Report type<select id="reportType"><option value="">Select report type</option></select></label>
+    <label>Scope<select id="scope"><option value="">Select evaluation scope</option></select></label>
+    <label>Format<select id="format"><option value="pdf">PDF</option><option value="html">HTML</option><option value="json">JSON</option></select></label>
+    <label>Version<select id="version"><option value="">Latest</option></select></label>
+    <button class="primary" id="generate">Generate Report</button>
+    <button class="secondary" id="preview">Preview</button>
+  </div>
+  <div class="generation" id="generation"><span id="generationText">No report job running.</span><span id="generationState">IDLE</span></div>
+</section>
+
+<section class="grid">
+  <article class="panel summary-panel">
+    <div class="panel-head"><div><span>EXECUTIVE SUMMARY</span><h2>Current Findings</h2></div><small id="summarySource">Backend</small></div>
+    <div id="summary" class="summary-content"><div class="empty">Waiting for backend report summary…</div></div>
+  </article>
+  <article class="panel status-panel">
+    <div class="panel-head"><div><span>REPORT STATUS</span><h2>Artifact Registry</h2></div><small>latest</small></div>
+    <div id="artifacts" class="artifact-list"><div class="empty">Waiting…</div></div>
+  </article>
+</section>
+
+<section class="panel matrix-panel">
+  <div class="panel-head"><div><span>RESULT SNAPSHOT</span><h2>Report Metrics</h2></div><div class="table-actions"><span id="rowCount">0 rows</span><button class="secondary small" id="downloadAll">Export JSON</button></div></div>
+  <div class="table-wrap">
+    <table><thead><tr><th>Metric</th><th>Baseline</th><th>Robust</th><th>Delta</th><th>Unit</th><th>Source</th></tr></thead>
+    <tbody id="metrics"><tr><td colspan="6"><div class="empty">No report metrics returned.</div></td></tr></tbody></table>
+  </div>
+</section>
+
+<section class="grid lower">
+  <article class="panel">
+    <div class="panel-head"><div><span>METHODOLOGY</span><h2>Experiment Configuration</h2></div><small>traceable</small></div>
+    <div id="methodology" class="method-grid"><div class="empty">Waiting for configuration…</div></div>
+  </article>
+  <article class="panel">
+    <div class="panel-head"><div><span>REPRODUCIBILITY</span><h2>Artifact Checks</h2></div><small>backend</small></div>
+    <div id="checks" class="checks"><div class="empty">Waiting for artifact checks…</div></div>
+  </article>
+</section>
+
+<section class="panel findings">
+  <div class="panel-head"><div><span>REPORT FINDINGS</span><h2>Evidence Notes</h2></div><span class="badge">DYNAMIC</span></div>
+  <div id="findings"><div class="empty">No findings returned.</div></div>
+</section>
+
+<footer><span>AMCShield © 2026</span><span>Medicaps University · Computer Science &amp; Engineering</span><span>Secure AI Research Console</span></footer>
+</main></div>
+<script src="reports.js"></script>
+</body></html>

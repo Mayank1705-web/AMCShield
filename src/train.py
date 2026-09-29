@@ -210,18 +210,64 @@ def train_model(
 
     # --------------------------------------------------------
     # Loss
+    #
+    # label_smoothing regularizes against over-confident
+    # predictions, which tends to generalize better on the
+    # ambiguous low-SNR / easily-confused modulation pairs
+    # (e.g. QAM16 vs QAM64, AM-DSB vs AM-SSB) in RadioML.
     # --------------------------------------------------------
 
-    criterion = nn.CrossEntropyLoss()
+    label_smoothing = config.get(
+        "label_smoothing",
+        0.1,
+    )
+
+    criterion = nn.CrossEntropyLoss(
+        label_smoothing=label_smoothing
+    )
 
     # --------------------------------------------------------
     # Optimizer
+    #
+    # AdamW (decoupled weight decay) instead of plain Adam.
     # --------------------------------------------------------
 
-    optimizer = torch.optim.Adam(
+    weight_decay = config.get(
+        "weight_decay",
+        1e-4,
+    )
+
+    optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=learning_rate,
+        weight_decay=weight_decay,
     )
+
+    # --------------------------------------------------------
+    # LR scheduler
+    #
+    # Reduces the learning rate once validation accuracy
+    # plateaus, instead of training at a single fixed LR for
+    # all epochs.
+    # --------------------------------------------------------
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=3,
+    )
+
+    # --------------------------------------------------------
+    # Early stopping
+    # --------------------------------------------------------
+
+    early_stopping_patience = config.get(
+        "early_stopping_patience",
+        7,
+    )
+
+    epochs_without_improvement = 0
 
     # --------------------------------------------------------
     # Checkpoint directory
@@ -331,15 +377,57 @@ def train_model(
 
             # ------------------------------------------------
             # Generate adversarial examples if requested.
+            #
+            # adv_train_ratio controls what fraction of each
+            # batch is adversarially perturbed; the rest stays
+            # clean. This mixing (rather than attacking 100%
+            # of every batch) is what lets the robust model
+            # keep clean accuracy close to the baseline while
+            # still training against PGD examples.
+            #
+            # adv_train_ratio=1.0 (or omitted) reproduces the
+            # previous behavior of attacking every batch.
             # ------------------------------------------------
 
             if adversarial_fn is not None:
 
-                signals = adversarial_fn(
-                    model,
-                    signals,
-                    labels,
+                adv_train_ratio = float(
+                    config.get("adv_train_ratio", 1.0)
                 )
+
+                batch_size_actual = signals.size(0)
+
+                num_adv = int(
+                    round(
+                        adv_train_ratio
+                        * batch_size_actual
+                    )
+                )
+
+                if num_adv <= 0:
+
+                    pass
+
+                elif num_adv >= batch_size_actual:
+
+                    signals = adversarial_fn(
+                        model,
+                        signals,
+                        labels,
+                    )
+
+                else:
+
+                    adv_signals = adversarial_fn(
+                        model,
+                        signals[:num_adv],
+                        labels[:num_adv],
+                    )
+
+                    signals = torch.cat(
+                        [adv_signals, signals[num_adv:]],
+                        dim=0,
+                    )
 
             # ------------------------------------------------
             # Clear gradients
@@ -369,6 +457,16 @@ def train_model(
             # ------------------------------------------------
 
             loss.backward()
+
+            # ------------------------------------------------
+            # Gradient clipping (helps stability, especially
+            # on batches containing adversarial examples).
+            # ------------------------------------------------
+
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                max_norm=5.0,
+            )
 
             # ------------------------------------------------
             # Update weights
@@ -495,12 +593,22 @@ def train_model(
         )
 
         # ----------------------------------------------------
+        # LR scheduler step (driven by validation accuracy)
+        # ----------------------------------------------------
+
+        scheduler.step(val_accuracy)
+
+        current_lr = optimizer.param_groups[0]["lr"]
+
+        # ----------------------------------------------------
         # Save best model
         # ----------------------------------------------------
 
         if val_accuracy > best_val_accuracy:
 
             best_val_accuracy = val_accuracy
+
+            epochs_without_improvement = 0
 
             torch.save(
                 {
@@ -519,6 +627,17 @@ def train_model(
                 f"{checkpoint_file}"
             )
 
+        else:
+
+            epochs_without_improvement += 1
+
+            print(
+                f"  No improvement for "
+                f"{epochs_without_improvement} epoch(s) "
+                f"(patience={early_stopping_patience}) "
+                f"| LR: {current_lr:.6f}"
+            )
+
         # ----------------------------------------------------
         # Update overall progress
         # ----------------------------------------------------
@@ -529,7 +648,23 @@ def train_model(
             epoch=f"{epoch}/{epochs}",
             train_acc=f"{train_accuracy * 100:.2f}%",
             val_acc=f"{val_accuracy * 100:.2f}%",
+            lr=f"{current_lr:.6f}",
         )
+
+        # ----------------------------------------------------
+        # Early stopping
+        # ----------------------------------------------------
+
+        if epochs_without_improvement >= early_stopping_patience:
+
+            print()
+            print(
+                f"Early stopping triggered after {epoch} "
+                f"epochs (no val improvement for "
+                f"{early_stopping_patience} epochs)."
+            )
+
+            break
 
     # ========================================================
     # Close overall progress
