@@ -17,8 +17,8 @@
    */
 
   const API_BASE = "/api";
-  const VALIDATE_URL = `${API_BASE}/invitations/validate`;
-  const ACTIVATE_URL = `${API_BASE}/invitations/activate`;
+  const VALIDATE_URL = "/api/account/invite/validate";
+  const COMPLETE_URL = "/api/account/invite/complete";
 
   const els = {
     loading: document.getElementById("loadingState"),
@@ -120,8 +120,28 @@
     catch { return { message: text }; }
   }
 
+  async function getCsrfToken() {
+    const response = await fetch("/api/auth/csrf", {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" }
+    });
+    const data = await readJson(response);
+    if (!response.ok || !data.csrf_token) {
+      throw new Error("Unable to establish a secure session.");
+    }
+    return data.csrf_token;
+  }
+
   async function validateInvitation() {
     invitationToken = getTokenFromUrl();
+
+    // Keep the one-time token in memory only; remove it from the URL
+    // immediately so it is not retained in browser history.
+    if (invitationToken) {
+      const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
 
     if (!invitationToken) {
       showInvalid(
@@ -250,16 +270,17 @@
     hideMessage();
 
     try {
-      const response = await fetch(ACTIVATE_URL, {
+      const response = await AMCShieldSecurity.fetch(COMPLETE_URL, {
         method: "POST",
         credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json"
+          "Accept": "application/json",
         },
         body: JSON.stringify({
-          token: invitationToken,
-          password: els.password.value
+            token: invitationToken,
+            password: els.password.value,
+            confirm_password: els.confirm.value
         })
       });
 

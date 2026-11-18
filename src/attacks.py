@@ -13,12 +13,24 @@ Important:
     All epsilon-bounded attacks explicitly enforce:
 
         ||x_adv - x||_inf <= epsilon
+
+Patch notes (attack-correctness fixes):
+    1. Attacks no longer leave the caller's model in eval mode. Robust
+       training calls pgd_attack() mid-epoch; previously that silently
+       switched the model to eval mode, so BatchNorm never updated and
+       Dropout was off for the rest of training.
+    2. C&W is implemented here in signal space. torchattacks.CW clamps
+       inputs/outputs to [0, 1], which destroys signed RF/IQ data.
+    3. The black-box surrogate keeps BatchNorm in eval mode (running
+       statistics are never modified by an attack) and all of its
+       parameters/flags are restored afterwards.
 """
 
+import functools
+from contextlib import contextmanager
 from typing import Optional
 import torch
 import torch.nn.functional as F
-import torchattacks
 
 
 # ============================================================
@@ -32,6 +44,65 @@ def _prepare(model, x, y):
     y = y.detach().long()
 
     return x, y
+
+
+@contextmanager
+def _eval_mode(model):
+    """
+    Put `model` in eval mode for the duration of an attack, then restore
+    the training flag of EVERY submodule exactly as it was.
+    """
+    saved = [(m, m.training) for m in model.modules()]
+    model.eval()
+    try:
+        yield
+    finally:
+        for module, was_training in saved:
+            module.training = was_training
+
+
+def _restores_mode(fn):
+    """Decorator: run an attack(model, ...) without changing model.training."""
+    @functools.wraps(fn)
+    def wrapper(model, *args, **kwargs):
+        with _eval_mode(model):
+            return fn(model, *args, **kwargs)
+    return wrapper
+
+
+@contextmanager
+def _surrogate_attack_mode(surrogate):
+    """
+    Prepare a frozen surrogate for gradient-based attack generation.
+
+    - Whole network in eval mode: BatchNorm uses running statistics and
+      does NOT update them; Dropout is inactive.
+    - Recurrent layers are switched back to train mode with their internal
+      dropout set to 0.0, because cuDNN RNN backward() requires train mode.
+      With dropout 0.0 this is still deterministic.
+    - Parameters are frozen for the attack and restored afterwards.
+    Everything is restored on exit, even if the attack raises.
+    """
+    saved_flags = [(m, m.training) for m in surrogate.modules()]
+    saved_req = [(p, p.requires_grad) for p in surrogate.parameters()]
+    rnns = [m for m in surrogate.modules() if isinstance(m, torch.nn.RNNBase)]
+    saved_rnn_dropout = [(m, m.dropout) for m in rnns]
+
+    surrogate.eval()
+    for rnn in rnns:
+        rnn.train()
+        rnn.dropout = 0.0
+    for parameter in surrogate.parameters():
+        parameter.requires_grad_(False)
+    try:
+        yield
+    finally:
+        for module, was_training in saved_flags:
+            module.training = was_training
+        for parameter, flag in saved_req:
+            parameter.requires_grad_(flag)
+        for rnn, p in saved_rnn_dropout:
+            rnn.dropout = p
 
 
 def _project_linf(
@@ -60,6 +131,7 @@ def _project_linf(
 # FGSM
 # ============================================================
 
+@_restores_mode
 def fgsm_attack(
     model,
     x: torch.Tensor,
@@ -105,12 +177,15 @@ def fgsm_attack(
 # PGD
 # ============================================================
 
+@_restores_mode
 def pgd_attack(
     model,
     x: torch.Tensor,
     y: torch.Tensor,
     epsilon: float,
     steps: int = 10,
+    alpha: Optional[float] = None,
+    random_start: bool = True,
 ) -> torch.Tensor:
     """
     RF-domain Projected Gradient Descent.
@@ -118,19 +193,24 @@ def pgd_attack(
     No [0,1] clipping is performed.
 
     Random initialization occurs inside the epsilon ball.
+
+    alpha (step size) defaults to 2.5 * epsilon / steps (Madry et al.).
+    The earlier default, epsilon / steps, combined with the random start,
+    could not reach the epsilon boundary for many coordinates, which made
+    10-step PGD WEAKER than single-step FGSM on this project's models.
     """
 
     x, y = _prepare(model, x, y)
 
-    # Random point inside the L-inf epsilon ball.
-    delta = torch.empty_like(x).uniform_(
-        -epsilon,
-        epsilon,
-    )
+    # Random point inside the L-inf epsilon ball (or start exactly at x).
+    if random_start:
+        delta = torch.empty_like(x).uniform_(-epsilon, epsilon)
+        adv_x = (x + delta).detach()
+    else:
+        adv_x = x.clone().detach()
 
-    adv_x = (x + delta).detach()
-
-    alpha = epsilon / max(steps, 1)
+    if alpha is None:
+        alpha = 2.5 * epsilon / max(steps, 1)
 
     for _ in range(steps):
 
@@ -163,29 +243,41 @@ def pgd_attack(
 # MIM
 # ============================================================
 
+@_restores_mode
 def mim_attack(
     model,
     x: torch.Tensor,
     y: torch.Tensor,
     epsilon: float,
     steps: int = 10,
+    alpha: Optional[float] = None,
+    random_start: bool = False,
 ) -> torch.Tensor:
     """
     RF-domain Momentum Iterative Method.
 
     Uses normalized gradients with momentum.
+
+    Momentum Iterative Method (Dong et al. 2018) with sign steps.
+
+    alpha (step size) defaults to 2.5 * epsilon / steps, the same ratio the
+    torchattacks defaults use (epsilon/4 for 10 steps). With epsilon / steps
+    and momentum signs that keep flipping, most coordinates never reached the
+    epsilon boundary and MIM came out WEAKER than single-step FGSM on this
+    project's baseline (6.5% vs 4.8% accuracy). Pass alpha=epsilon/steps for
+    the textbook step, and random_start=True for a random initial point.
     """
 
     x, y = _prepare(model, x, y)
 
-    delta = torch.empty_like(x).uniform_(
-        -epsilon,
-        epsilon,
-    )
+    if random_start:
+        delta = torch.empty_like(x).uniform_(-epsilon, epsilon)
+        adv_x = (x + delta).detach()
+    else:
+        adv_x = x.clone().detach()
 
-    adv_x = (x + delta).detach()
-
-    alpha = epsilon / max(steps, 1)
+    if alpha is None:
+        alpha = 2.5 * epsilon / max(steps, 1)
 
     momentum = torch.zeros_like(x)
 
@@ -235,31 +327,40 @@ def mim_attack(
 # C&W
 # ============================================================
 
+@_restores_mode
 def cw_attack(
     model,
     x: torch.Tensor,
     y: torch.Tensor,
+    c: float = 1.0,
+    kappa: float = 0.0,
+    steps: int = 50,
+    lr: float = 0.01,
+    bound: Optional[float] = None,
 ) -> torch.Tensor:
     """
-    Carlini & Wagner attack for RadioML RF/IQ signals.
+    Carlini & Wagner L2 attack for signed RF/IQ signals (B, 2, 1024).
 
-    Input:
-        x -> RF/IQ tensor with shape (B, 2, 1024)
-        y -> class labels with shape (B,)
+    Implemented in signal space on purpose: torchattacks.CW maps inputs
+    through a [0, 1] tanh box and clamps, which corrupts signed IQ data
+    (the returned "adversarial" signal was not a small perturbation of x).
 
-    Important:
-        - No subset selection is performed here.
-        - No [0, 1] clipping is performed.
-        - No artificial epsilon/L-infinity projection is applied.
-        - The C&W optimizer is allowed to determine the perturbation.
-        - The returned adversarial examples preserve the RF tensor
-          shape (B, 2, 1024).
-        - Returned tensor is detached from the computation graph.
+    The perturbation is parametrised as  x_adv = bound * tanh(w)  so that
+    x_adv stays inside [-bound, +bound]; `bound` only needs to exceed
+    max|x|. By default it is 1.5 * max|x| of the batch; pass a fixed value
+    (e.g. 1.5 * max|X_train|) for results that do not depend on batch
+    composition.
+
+    Minimises  ||x_adv - x||_2^2 + c * max(real_logit - other_logit + kappa, 0)
+    with Adam. For each sample the lowest-L2 adversarial example found is
+    returned; samples where no adversarial example was found are returned
+    unchanged (same convention as torchattacks).
+
+    No epsilon / L-infinity projection is applied, by design.
     """
 
     x, y = _prepare(model, x, y)
 
-    # Preserve the expected RF/IQ input shape.
     if x.ndim != 3:
         raise ValueError(
             f"Expected RF input with 3 dimensions "
@@ -272,112 +373,50 @@ def cw_attack(
             f"got {tuple(x.shape)}"
         )
 
-    attack = torchattacks.CW(
-        model,
-        c=1.0,
-        kappa=0.0,
-        steps=50,
-        lr=0.01,
+    if bound is None:
+        bound = float(x.abs().max().item()) * 1.5 + 1e-8
+
+    w = torch.atanh(
+        torch.clamp(x / bound, -1 + 1e-6, 1 - 1e-6)
+    ).detach().requires_grad_(True)
+
+    optimizer = torch.optim.Adam([w], lr=lr)
+
+    best_adv = x.clone()
+    best_l2 = torch.full(
+        (x.shape[0],), float("inf"), device=x.device
     )
 
-    # C&W is intentionally NOT followed by _project_linf().
-    # Unlike FGSM/PGD/MIM, this attack is not artificially
-    # constrained to epsilon=0.02 here.
-    adv_x = attack(x, y)
+    for _ in range(steps):
 
-    # Ensure the attack did not alter the RF tensor shape.
-    if adv_x.shape != x.shape:
-        raise RuntimeError(
-            f"C&W changed the RF tensor shape: "
-            f"input={tuple(x.shape)}, "
-            f"adversarial={tuple(adv_x.shape)}"
-        )
+        adv = bound * torch.tanh(w)
+        logits = model(adv)
 
-    return adv_x.detach()
+        l2 = ((adv - x) ** 2).sum(dim=(1, 2))
+
+        true_mask = F.one_hot(y, logits.shape[1]).bool()
+        real = logits[true_mask]
+        other = logits.masked_fill(true_mask, float("-inf")).max(dim=1).values
+        margin = torch.clamp(real - other + kappa, min=0.0)
+
+        loss = (l2 + c * margin).sum()
+
+        # Gradient w.r.t. w only: model parameter .grad is left untouched.
+        w.grad = torch.autograd.grad(loss, w)[0]
+        optimizer.step()
+
+        with torch.no_grad():
+            success = logits.argmax(dim=1) != y
+            improved = success & (l2 < best_l2)
+            best_l2 = torch.where(improved, l2, best_l2)
+            best_adv[improved] = adv.detach()[improved]
+
+    return best_adv.detach()
+
 
 # ============================================================
 # BLACK-BOX TRANSFER
 # ============================================================
-
-def blackbox_transfer_attack(
-    surrogate_model,
-    target_model,
-    x: torch.Tensor,
-    y: torch.Tensor,
-    epsilon: float,
-    steps: int = 10,
-) -> torch.Tensor:
-    """
-    Black-box transfer attack.
-
-    Gradients are computed ONLY through surrogate_model.
-
-    target_model is NOT used to generate the attack.
-    """
-
-    target_model.eval()
-    
-    # The surrogate must be in TRAIN mode because its BiLSTM
-    # uses cuDNN, which requires training mode for backward().
-    #
-    # This does NOT train the surrogate:
-    # all surrogate parameters remain frozen.
-    surrogate_model.train()
-    
-    # Disable dropout while keeping the LSTM in training mode.
-    # This makes the attack deterministic.
-    dropout_modules = []
-    
-    for module in surrogate_model.modules():
-        if isinstance(module, torch.nn.Dropout):
-            dropout_modules.append((module, module.p))
-            module.p = 0.0
-    
-    for parameter in surrogate_model.parameters():
-        parameter.requires_grad_(False)
-    
-    x = x.detach()
-    y = y.detach().long()
-
-    delta = torch.empty_like(x).uniform_(
-        -epsilon,
-        epsilon,
-    )
-
-    adv_x = (x + delta).detach()
-
-    alpha = epsilon / max(steps, 1)
-
-    for _ in range(steps):
-
-        adv_x.requires_grad_(True)
-
-        surrogate_model.zero_grad(
-            set_to_none=True
-        )
-
-        logits = surrogate_model(adv_x)
-
-        loss = torch.nn.functional.cross_entropy(
-            logits,
-            y,
-        )
-
-        loss.backward()
-
-        gradient = adv_x.grad.detach()
-
-        adv_x = adv_x.detach() + (
-            alpha * gradient.sign()
-        )
-
-        adv_x = _project_linf(
-            adv_x,
-            x,
-            epsilon,
-        ).detach()
-
-    return adv_x
 
 def black_box_attack(
     target_model,
@@ -390,122 +429,86 @@ def black_box_attack(
     """
     Strict query-only black-box transfer attack.
 
-    Attack generation uses ONLY the surrogate model.
+    Attack generation uses ONLY the surrogate model. The target model is
+    never differentiated through, and ground-truth y is NOT used to
+    generate the perturbation (it is kept only for API compatibility).
 
-    The target model is never differentiated through.
-
-    Ground-truth y is NOT used to generate the perturbation.
-    It is retained only for API compatibility.
+    Surrogate handling (see _surrogate_attack_mode): BatchNorm stays in
+    eval mode so the surrogate's running statistics are never modified by
+    an attack, parameters are frozen only for the duration of the call,
+    and every flag is restored afterwards.
     """
 
-    # --------------------------------------------------------
-    # Target model
-    # --------------------------------------------------------
+    with _eval_mode(target_model), _surrogate_attack_mode(surrogate_model):
 
-    target_model.eval()
+        x = x.detach()
 
-    # --------------------------------------------------------
-    # Surrogate model
-    #
-    # The surrogate contains a BiLSTM.
-    # cuDNN requires RNN training mode for backward().
-    #
-    # This does NOT train the surrogate.
-    # Its parameters remain frozen.
-    # --------------------------------------------------------
-
-    surrogate_model.train()
-
-    # Disable dropout while retaining LSTM training mode.
-    dropout_modules = []
-
-    for module in surrogate_model.modules():
-        if isinstance(module, torch.nn.Dropout):
-            dropout_modules.append(
-                (module, module.p)
+        # Labels come from the surrogate's own predictions, never from y.
+        with torch.no_grad():
+            surrogate_labels = torch.argmax(
+                surrogate_model(x),
+                dim=1,
             )
-            module.p = 0.0
 
-    # Freeze all surrogate parameters.
-    for parameter in surrogate_model.parameters():
-        parameter.requires_grad_(False)
-
-    x = x.detach()
-    y = y.detach().long()
-
-    # --------------------------------------------------------
-    # Query surrogate for labels.
-    #
-    # IMPORTANT:
-    # Ground-truth y is NOT used here.
-    # --------------------------------------------------------
-
-    with torch.no_grad():
-        surrogate_labels = torch.argmax(
-            surrogate_model(x),
-            dim=1,
-        )
-
-    # --------------------------------------------------------
-    # Random initialization inside epsilon L-infinity ball
-    # --------------------------------------------------------
-
-    delta = torch.empty_like(x).uniform_(
-        -epsilon,
-        epsilon,
-    )
-
-    adv_x = (x + delta).detach()
-
-    alpha = epsilon / max(steps, 1)
-
-    # --------------------------------------------------------
-    # PGD on SURROGATE ONLY
-    # --------------------------------------------------------
-
-    for _ in range(steps):
-
-        adv_x.requires_grad_(True)
-
-        surrogate_model.zero_grad(
-            set_to_none=True
-        )
-
-        logits = surrogate_model(adv_x)
-
-        loss = F.cross_entropy(
-            logits,
-            surrogate_labels,
-        )
-
-        loss.backward()
-
-        gradient = adv_x.grad.detach()
-
-        adv_x = (
-            adv_x.detach()
-            + alpha * gradient.sign()
-        )
-
-        # Project into epsilon L-infinity ball.
-        #
-        # No [0,1] clipping because these are RF/IQ signals.
-        adv_x = _project_linf(
-            adv_x,
-            x,
+        # Random initialization inside the epsilon L-infinity ball.
+        delta = torch.empty_like(x).uniform_(
+            -epsilon,
             epsilon,
-        ).detach()
+        )
 
-    # --------------------------------------------------------
-    # Restore surrogate state
-    # --------------------------------------------------------
+        adv_x = (x + delta).detach()
 
-    for module, original_p in dropout_modules:
-        module.p = original_p
+        alpha = 2.5 * epsilon / max(steps, 1)
 
-    surrogate_model.eval()
+        # PGD on the SURROGATE only.
+        for _ in range(steps):
+
+            adv_x.requires_grad_(True)
+
+            logits = surrogate_model(adv_x)
+
+            loss = F.cross_entropy(
+                logits,
+                surrogate_labels,
+            )
+
+            gradient = torch.autograd.grad(loss, adv_x)[0]
+
+            adv_x = (
+                adv_x.detach()
+                + alpha * gradient.sign()
+            )
+
+            # No [0,1] clipping because these are RF/IQ signals.
+            adv_x = _project_linf(
+                adv_x,
+                x,
+                epsilon,
+            ).detach()
 
     return adv_x.detach()
+
+
+def blackbox_transfer_attack(
+    surrogate_model,
+    target_model,
+    x: torch.Tensor,
+    y: torch.Tensor,
+    epsilon: float,
+    steps: int = 10,
+) -> torch.Tensor:
+    """
+    Kept for backward compatibility (used by attack_smoke_test.py).
+
+    Delegates to black_box_attack() so there is a single black-box
+    implementation. The previous version used ground-truth labels as the
+    loss target and left the surrogate in train mode with its Dropout
+    disabled and parameters frozen.
+    """
+    return black_box_attack(
+        target_model, x, y, surrogate_model, epsilon, steps
+    )
+
 
 # ============================================================
 # Self test

@@ -3,22 +3,36 @@
  * No experiment values are hardcoded here.
  * All metadata, distributions, samples and quality checks come from FastAPI.
  */
-const API_BASE_URL = "http://localhost:8000/api";
+const API_BASE_URL = "/api";
 
 const $ = id => document.getElementById(id);
 const state = { meta:null, classes:null, snr:null, quality:null };
 
 async function api(path, options={}) {
-  const r = await fetch(API_BASE_URL + path, {
+  const request = window.AMCShieldSecurity?.fetch || fetch;
+
+  const r = await request(API_BASE_URL + path, {
     ...options,
-    headers: {Accept:"application/json", ...(options.headers||{})}
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(options.headers || {})
+    }
   });
-  if (!r.ok) {
-    let detail="";
-    try { const x=await r.json(); detail=x.detail||x.message||""; } catch(_){}
+
+  let body = {};
+  try {
+    body = await r.json();
+  } catch (_) {
+    body = {};
+  }
+
+  if (!r.ok || body.success === false) {
+    const detail = body.detail || body.message || "Dataset API request failed";
     throw new Error(detail || `HTTP ${r.status}`);
   }
-  return r.json();
+
+  return body.data ?? body;
 }
 
 function setAPI(ok, detail) {
@@ -127,14 +141,34 @@ function renderSplits(d) {
     ["Train",x.train??x.train_size??x.training],
     ["Validation",x.validation??x.val??x.val_size],
     ["Test",x.test??x.test_size]
-  ].filter(x=>x[1]!==undefined&&x[1]!==null);
-  const box=$("splitList");box.innerHTML="";
-  if(!items.length){box.innerHTML='<div class="empty">No split information returned by backend.</div>';return;}
+  ].filter(item=>item[1]!==undefined&&item[1]!==null);
+
+  const box=$("splitList");
+  box.innerHTML="";
+
+  if(!items.length){
+    box.innerHTML='<div class="empty">No split information returned by backend.</div>';
+    return;
+  }
+
   items.forEach(([name,value])=>{
-    let p=typeof value==="number"?value:(Number(value)||0);
-    if(p>1) p=p/100;
-    const row=document.createElement("div");row.className="split";
-    row.innerHTML=`<label>${escapeHTML(name)}</label><div class="split-track"><div class="split-fill" style="width:${Math.max(0,Math.min(100,p*100))}%"></div></div><span class="split-value">${typeof value==="number"&&value<=1?pct(value):String(value)}</span>`;
+    let percentage;
+    let label;
+
+    if(value && typeof value==="object"){
+      percentage=Number(value.percentage);
+      label=`${fmt(value.count)} (${pct(percentage)})`;
+    } else {
+      let numeric=Number(value);
+      percentage=numeric>1?numeric:numeric*100;
+      label=typeof value==="number"&&value<=1?pct(value*100):String(value);
+    }
+
+    if(!Number.isFinite(percentage)) percentage=0;
+
+    const row=document.createElement("div");
+    row.className="split";
+    row.innerHTML=`<label>${escapeHTML(name)}</label><div class="split-track"><div class="split-fill" style="width:${Math.max(0,Math.min(100,percentage))}%"></div></div><span class="split-value">${escapeHTML(label)}</span>`;
     box.appendChild(row);
   });
 }
@@ -203,5 +237,5 @@ $("refresh").addEventListener("click",load);
 $("loadSample").addEventListener("click",loadSample);
 $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").classList.add("show")});
 $("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").classList.remove("show")});
-$("logout").addEventListener("click",()=>{window.location.href="../login/index.html"});
+$("logout").addEventListener("click",async()=>{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});location.href="/"});
 load();

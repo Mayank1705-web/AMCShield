@@ -3,11 +3,16 @@
  * Training values and charts are fetched from FastAPI.
  * No experimental metrics are hardcoded in the UI.
  */
-const API_BASE_URL="http://localhost:8000/api";
+const API_BASE_URL="/api";
 const $=id=>document.getElementById(id);
 
 async function api(path, options={}){
-  const r=await fetch(API_BASE_URL+path,{...options,headers:{Accept:"application/json",...(options.headers||{})}});
+  if(!window.AMCShieldSecurity?.fetch) throw new Error("Secure API client is unavailable.");
+  const r=await window.AMCShieldSecurity.fetch(API_BASE_URL+path,{
+    ...options,
+    credentials:"include",
+    headers:{Accept:"application/json",...(options.headers||{})}
+  });
   if(!r.ok){let d="";try{const x=await r.json();d=x.detail||x.message||""}catch(_){}throw new Error(d||`HTTP ${r.status}`)}
   return r.json();
 }
@@ -118,21 +123,34 @@ async function load(){
     ["/training/logs",renderLogs]
   ];
   let ok=0;
-  for(const [path,fn] of endpoints){try{fn(await api(path));ok++}catch(_){/* each panel reports backend absence */}}
+  for(const [path,fn] of endpoints){try{const response=await api(path);fn(response?.data??response);ok++}catch(_){/* each panel reports backend absence */}}
   setAPI(ok>0,ok?`${ok}/${endpoints.length} training endpoints responding`:"Training endpoints unavailable");
   $("updated").textContent=ok?`Updated ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"Not loaded";
   $("refresh").disabled=false;
 }
 
-async function command(path,label){
+async function command(path,label,includeModel=false){
   $("commandStatus").textContent=`${label} request sent…`;
-  try{const d=await api(path,{method:"POST"});$("commandStatus").textContent=d.message||`${label} request accepted by backend.`;load()}catch(e){$("commandStatus").textContent=`${label} unavailable: ${e.message}`}
+  try{
+    const options={method:"POST"};
+    if(includeModel){
+      options.headers={"Content-Type":"application/json"};
+      options.body=JSON.stringify({model:$("modelSelect").value});
+    }
+    const response=await api(path,options);
+    const result=response?.data??response;
+    $("commandStatus").textContent=result?.run?.message||result?.message||`${label} request accepted by backend.`;
+    await load();
+  }catch(e){
+    $("commandStatus").textContent=`${label} unavailable: ${e.message}`;
+  }
 }
-$("startRun").addEventListener("click",()=>command("/training/start","Start training"));
+$("startRun").addEventListener("click",()=>command("/training/start","Start training",true));
+$("resumeRun").addEventListener("click",()=>command("/training/resume","Resume training",true));
 $("stopRun").addEventListener("click",()=>command("/training/stop","Stop training"));
 $("refresh").addEventListener("click",load);
 $("clearLog").addEventListener("click",()=>$("logWindow").innerHTML='<div class="log-empty">Log view cleared. Backend telemetry remains unchanged.</div>');
 $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").style.display="block"});
 $("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").style.display="none"});
-$("logout").addEventListener("click",()=>window.location.href="../login/index.html");
+$("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});
 load();

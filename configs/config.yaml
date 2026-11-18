@@ -122,4 +122,4 @@ cw_eval_subset_size: 300
 
 # Number of queries made to the baseline model
 # to obtain labels for surrogate-model training.
-surrogate_query_budget: 5000
+surrogate_query_budget: 50000

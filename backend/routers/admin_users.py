@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..dependencies import require_admin
 
 from ..database.db import get_db
 
@@ -35,6 +36,7 @@ from ..services.email_service import (
 from ..services.security_service import (
     generate_token,
     hash_token,
+    require_csrf,
 )
 
 
@@ -51,52 +53,18 @@ class InviteUserRequest(BaseModel):
     email: EmailStr
 
 
-def require_admin(
-    request: Request,
-):
-
-    session_user = request.session.get(
-        "user"
-    )
-
-    if not session_user:
-
-        raise HTTPException(
-            status_code=401,
-            detail="Not authenticated.",
-        )
-
-    role = session_user.get(
-        "role"
-    )
-
-    if role not in (
-        "Administrator",
-        "admin",
-    ):
-
-        raise HTTPException(
-            status_code=403,
-            detail="Administrator access required.",
-        )
-
-    return session_user
-
-
-@router.post("/invite")
+@router.post("/invite", dependencies=[Depends(require_csrf)])
 def invite_user(
 
     payload: InviteUserRequest,
 
     request: Request,
 
+    admin_user: dict = Depends(require_admin),
+
     db: Session = Depends(get_db),
 
 ):
-
-    admin_user = require_admin(
-        request
-    )
 
     name = payload.name.strip()
 

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#050807" />
+  <title>AMCShield — ML Metrics Reference</title>
+  <meta name="description" content="Comprehensive reference for all machine-learning evaluation metrics and validation methods used in the AMCShield project." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="metrics-reference.css" />
+  <script src="security.js"></script>
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- ── SIDEBAR ── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <img src="assets/amcshield-logo.png" alt="AMCShield" />
+      </div>
+      <nav class="side-nav" aria-label="Primary navigation">
+        <a class="nav-item" href="dashboard.html" data-page="dashboard">
+          <span class="nav-icon">⌂</span><span>Dashboard</span>
+        </a>
+        <a class="nav-item" href="dataset.html" data-page="dataset">
+          <span class="nav-icon">◫</span><span>Dataset</span>
+        </a>
+        <a class="nav-item" href="model-training.html" data-page="training">
+          <span class="nav-icon">▣</span><span>Model Training</span>
+        </a>
+        <a class="nav-item" href="adversarial-attacks.html" data-page="attacks">
+          <span class="nav-icon">⌁</span><span>Adversarial Attacks</span>
+        </a>
+        <a class="nav-item" href="evaluation-results.html" data-page="evaluation">
+          <span class="nav-icon">◒</span><span>Evaluation Results</span>
+        </a>
+        <a class="nav-item" href="visualization.html" data-page="visualization">
+          <span class="nav-icon">▥</span><span>Visualization</span>
+        </a>
+        <a class="nav-item" href="reports.html" data-page="reports">
+          <span class="nav-icon">▤</span><span>Reports</span>
+        </a>
+        <a class="nav-item active" href="metrics-reference.html" data-page="metrics">
+          <span class="nav-icon">⊞</span><span>Metrics Reference</span>
+        </a>
+        <a class="nav-item" href="about.html" data-page="about">
+          <span class="nav-icon">ⓘ</span><span>About Project</span>
+        </a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="api-status" id="apiStatus">
+          <span class="status-light"></span>
+          <div>
+            <strong id="apiStatusText">Checking API</strong>
+            <small id="apiStatusDetail">Connecting…</small>
+          </div>
+        </div>
+        <button class="side-action" id="logoutButton" type="button">↪ <span>Logout</span></button>
+      </div>
+    </aside>
+
+    <div class="mobile-overlay" id="mobileOverlay"></div>
+
+    <!-- ── MAIN ── -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn menu-btn" id="menuButton" aria-label="Open navigation">☰</button>
+          <div>
+            <div class="eyebrow">AMCShield / RESEARCH REFERENCE</div>
+            <h1>ML Metrics Reference</h1>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div class="search-wrap">
+            <span class="search-icon">⌕</span>
+            <input type="search" id="metricSearch" class="search-input" placeholder="Search metrics…" aria-label="Search metrics" />
+          </div>
+          <div class="profile">
+            <div class="profile-avatar" id="profileAvatar">A</div>
+            <div class="profile-copy">
+              <strong id="userName">User</strong>
+              <small id="userRole">AMCShield Console</small>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- INTRO BANNER -->
+      <div class="ref-banner">
+        <div class="ref-banner-left">
+          <div class="ref-kicker"><span class="ref-dot"></span>COMPREHENSIVE REFERENCE</div>
+          <h2>Validation Methods &amp; Evaluation Metrics</h2>
+          <p>Every metric and validation strategy used across the AMCShield evaluation pipeline — from train-test split to Cohen's Kappa, with formulas, interpretation guides, and usage notes.</p>
+        </div>
+        <div class="ref-banner-stats">
+          <div class="ref-stat"><strong id="totalMetrics">53</strong><span>Total Metrics</span></div>
+          <div class="ref-stat"><strong>6</strong><span>Categories</span></div>
+          <div class="ref-stat ref-stat-active" id="activeCategory"><strong>All</strong><span>Active Filter</span></div>
+        </div>
+      </div>
+
+      <!-- CATEGORY TABS -->
+      <div class="tab-strip" id="tabStrip" role="tablist" aria-label="Metric categories">
+        <button class="tab active" role="tab" aria-selected="true"  data-cat="all"        id="tab-all">All</button>
+        <button class="tab" role="tab" aria-selected="false" data-cat="validation"   id="tab-validation">① Validation Methods</button>
+        <button class="tab" role="tab" aria-selected="false" data-cat="classification" id="tab-classification">② Classification</button>
+        <button class="tab" role="tab" aria-selected="false" data-cat="regression"   id="tab-regression">③ Regression</button>
+        <button class="tab" role="tab" aria-selected="false" data-cat="clustering"   id="tab-clustering">④ Clustering</button>
+        <button class="tab" role="tab" aria-selected="false" data-cat="ranking"      id="tab-ranking">⑤ Ranking</button>
+        <button class="tab" role="tab" aria-selected="false" data-cat="system"       id="tab-system">⑥ System &amp; Production</button>
+      </div>
+
+      <!-- CARDS GRID -->
+      <section class="cards-grid" id="cardsGrid" aria-live="polite" aria-label="Metric cards">
+        <!-- dynamically injected by metrics-reference.js -->
+      </section>
+
+      <!-- EMPTY STATE -->
+      <div class="empty-state hidden" id="emptyState">
+        <div class="empty-icon">⊘</div>
+        <strong>No metrics match your search</strong>
+        <small>Try a shorter query or clear the search box.</small>
+      </div>
+
+      <footer>
+        <span>AMCShield © 2026</span>
+        <span>Medicaps University · Department of Computer Science &amp; Engineering</span>
+        <span>Secure AI Research Console</span>
+      </footer>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="nav-admin.js" defer></script>
+  <script src="metrics-reference.js"></script>
+</body>
+</html>

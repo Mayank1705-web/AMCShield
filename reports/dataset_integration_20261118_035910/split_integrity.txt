@@ -1,0 +1,7 @@
+﻿train: 1,789,132 samples | 0 to 2555903
+val: 383,386 samples | 1 to 2555887
+test: 383,386 samples | 10 to 2555900
+train/val overlap: 0
+train/test overlap: 0
+val/test overlap: 0
+PASS: Split integrity verified

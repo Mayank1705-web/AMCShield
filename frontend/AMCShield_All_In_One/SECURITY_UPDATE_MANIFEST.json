@@ -1,0 +1,23 @@
+{
+  "status": "frontend security integration completed",
+  "changes": [
+    "Centralized CSRF helper retained in both frontend roots.",
+    "State-changing authenticated requests use the CSRF-aware fetch helper.",
+    "Logout handlers call the backend logout endpoint before returning to the login page.",
+    "Invitation tokens are kept in memory and removed from the URL immediately after parsing.",
+    "Frontend API base URLs use same-origin /api paths instead of hard-coded localhost URLs.",
+    "Admin UI access remains backend-authorized; the privileged admin assets are server-gated.",
+    "Dynamic backend-provided HTML in reporting/visualization/profile views is escaped or URL-validated.",
+    "The backend remains authoritative for authentication and authorization."
+  ],
+  "remaining_direct_state_changing_fetches": [
+    [
+      "frontend/login.js",
+      "login is intentionally CSRF-exempt because it establishes the authentication session."
+    ],
+    [
+      "frontend/AMCShield_All_In_One/login.js",
+      "login is intentionally CSRF-exempt because it establishes the authentication session."
+    ]
+  ]
+}

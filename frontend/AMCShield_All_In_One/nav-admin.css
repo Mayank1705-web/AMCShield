@@ -1,0 +1,54 @@
+/* ============================================================
+   AMCShield Admin Inbox navigation
+   Shared visual treatment across authenticated pages.
+   ============================================================ */
+
+.admin-nav-item {
+  min-height: 45px;
+  height: 45px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #aab3ad;
+  font: 600 12px Rajdhani, Inter, Arial, sans-serif;
+  text-decoration: none;
+  transition: .18s ease;
+  box-sizing: border-box;
+}
+
+.admin-nav-item .nav-icon {
+  width: 20px;
+  min-width: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font: 400 18px Rajdhani, Inter, Arial, sans-serif;
+  line-height: 1;
+}
+
+.admin-nav-item:hover {
+  color: #fff;
+  background: #ffffff08;
+}
+
+.admin-nav-item.active {
+  color: #ffd75b;
+  background: #f4c5420d;
+  border-color: #f4c54229;
+  box-shadow: inset 3px 0 #f4c542;
+}
+
+.admin-nav-item b {
+  margin-left: auto;
+  background: rgba(255, 107, 107, .14);
+  border: 1px solid rgba(255, 107, 107, .28);
+  color: #ff9b9b;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 10px;
+  line-height: 1;
+}

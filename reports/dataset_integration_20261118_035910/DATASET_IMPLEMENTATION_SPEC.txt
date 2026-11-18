@@ -1,0 +1,72 @@
+﻿AMCShield Dataset Page Implementation Specification
+
+ACTIVE FRONTEND:
+frontend/AMCShield_All_In_One
+
+BACKEND:
+backend/routers/dataset.py
+backend/services/dataset_service.py
+
+REQUIRED ENDPOINTS:
+GET /api/dataset/metadata
+GET /api/dataset/class-distribution
+GET /api/dataset/snr-distribution
+GET /api/dataset/splits
+GET /api/dataset/quality
+GET /api/dataset/sample
+
+DATASET FACTS:
+Total samples: 2,555,904
+Classes: 24
+SNR levels: 26
+SNR range: -20 to +30 dB
+SNR step: 2 dB
+Signal shape: 1024 x 2
+Signal dtype: float32
+Train: 1,789,132
+Validation: 383,386
+Test: 383,386
+
+CLASS ORDER:
+Use data/raw/classes.txt for raw HDF5 label indices.
+Do not use classes-fixed.json as the raw label order.
+Do not remap labels in the Dataset UI.
+
+IMPLEMENTATION RULES:
+1. Inspect Dashboard implementation first.
+2. Preserve Dashboard UI and shared CSS.
+3. Use existing authentication dependencies.
+4. Follow existing API response envelope.
+5. Use relative /api URLs.
+6. Never expose .env or auth database.
+7. Never load HDF5 X fully into RAM.
+8. Read Y and Z in chunks.
+9. Cache expensive aggregate results.
+10. Read one X sample only when requested.
+11. Normalize samples consistently with src/data_loader.py.
+12. Do not modify src/, checkpoints/, results/, or data/.
+13. Do not regenerate splits.
+14. Do not invent sample data or quality metrics.
+15. Keep the existing visual design.
+16. Do not break logout, login, or CSRF behavior.
+
+QUALITY CHECKS:
+- Required data files exist.
+- HDF5 dataset shapes and dtypes are correct.
+- Index arrays are in range.
+- Splits are disjoint.
+- Combined splits cover all samples.
+- Metadata and class count agree.
+- Actual class and SNR distributions are returned.
+
+TESTING:
+- Existing pytest tests pass.
+- Every Dataset endpoint returns valid JSON.
+- Unauthenticated requests are rejected.
+- Authenticated requests work.
+- Dataset page loads without console errors.
+- Existing Dashboard remains functional.
+- Sample waveform is real HDF5 data.
+- No fabricated data is used.
+
+Do not alter scientific experiments or results.

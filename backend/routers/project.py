@@ -1,7 +1,12 @@
-from fastapi import APIRouter
-from ..config import settings, PROJECT_ROOT
+from fastapi import APIRouter, Depends
+from ..dependencies import require_authenticated
+from ..config import settings
 
-router = APIRouter(prefix="/project", tags=["Project"])
+router = APIRouter(
+    prefix="/project",
+    tags=["Project"],
+    dependencies=[Depends(require_authenticated)],
+)
 
 @router.get("/overview")
 def overview():
@@ -10,6 +15,5 @@ def overview():
         "data": {
             "name": "AMCShield",
             "version": settings.app_version,
-            "project_root": str(PROJECT_ROOT),
         },
     }

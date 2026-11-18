@@ -3,7 +3,7 @@
  * No attack metrics are hardcoded. All experiment results and threat
  * configuration are supplied by FastAPI.
  */
-const API_BASE_URL="http://localhost:8000/api";
+const API_BASE_URL="/api";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 const num=x=>Number.isFinite(Number(x))?Number(x):null;
@@ -95,4 +95,4 @@ async function stopAttack(){
 }
 $("refresh").addEventListener("click",load);$("launchAttack").addEventListener("click",runAttack);$("cancelAttack").addEventListener("click",stopAttack);
 $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").classList.add("show")});$("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").classList.remove("show")});
-$("logout").addEventListener("click",()=>window.location.href="../login/index.html");load();
+$("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();

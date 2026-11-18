@@ -9,6 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="dashboard.css" />
+  <script src="security.js"></script>
+  <script src="auth-guard.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -38,6 +40,9 @@
         </a>
         <a class="nav-item" href="reports.html" data-page="reports">
           <span class="nav-icon">▤</span><span>Reports</span>
+        </a>
+        <a class="nav-item" href="metrics-reference.html" data-page="metrics">
+          <span class="nav-icon">⊞</span><span>Metrics Reference</span>
         </a>
         <a class="nav-item" href="about.html" data-page="about">
           <span class="nav-icon">ⓘ</span><span>About Project</span>
@@ -270,6 +275,7 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
 
-  <script src="dashboard.js"></script>
+  <script src="nav-admin.js" defer></script>
+<script src="dashboard.js"></script>
 </body>
 </html>

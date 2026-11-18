@@ -259,8 +259,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
 
-            const response = await fetch(
-                "/api/auth/contact-admin",
+            const response = await AMCShieldSecurity.fetch("/api/auth/contact-admin",
                 {
                     method: "POST",
 

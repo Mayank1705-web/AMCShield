@@ -238,6 +238,21 @@ class RadioMLDataset(Dataset):
 # DataLoader creation
 # ============================================================
 
+class _FixedOrderSampler(torch.utils.data.Sampler):
+    """Yields the SAME pseudo-random permutation on every pass."""
+
+    def __init__(self, n: int, seed: int = 0):
+        self.order = torch.randperm(
+            n, generator=torch.Generator().manual_seed(seed)
+        ).tolist()
+
+    def __iter__(self):
+        return iter(self.order)
+
+    def __len__(self):
+        return len(self.order)
+
+
 def create_dataloaders(
     hdf5_path: str = DEFAULT_DATASET_PATH,
     processed_dir: str = DEFAULT_PROCESSED_DIR,
@@ -292,10 +307,17 @@ def create_dataloaders(
         pin_memory=torch.cuda.is_available(),
     )
 
+    # The test indices are stored in dataset order, and RadioML 2018.01A is
+    # stored class by class, so an in-order test loader yields ONE modulation
+    # class at a time. Scripts that take "the first N samples per SNR"
+    # (run_*_snr.py, run_baseline_attacks.py, ...) would then evaluate class 0
+    # only. Use a fixed pseudo-random order instead: random across classes,
+    # but identical on every pass and in every script, so the baseline and
+    # robust models are always compared on exactly the same samples.
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        sampler=_FixedOrderSampler(len(test_dataset), seed=0),
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
     )

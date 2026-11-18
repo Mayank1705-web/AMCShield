@@ -33,3 +33,46 @@ data/
 
 gitleaks-current.json
 gitleaks-history.json
+
+# AMCShield local environments
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets and local databases
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+secrets/
+
+# Large research datasets
+*.h5
+*.hdf5
+
+# Training checkpoints
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Training logs and runtime output
+logs/
+*.log
+
+# Backups and temporary files
+backups/
+backup_*/
+*.bak
+*.prev
+*.tmp
+
+# Archives - review and share separately if needed
+*.zip
+*.7z
+*.rar
+
+# Editor and operating-system files
+.idea/

@@ -1,0 +1,41 @@
+{
+  "project": "AMCShield",
+  "pages": [
+    {
+      "name": "Login",
+      "file": "index.html"
+    },
+    {
+      "name": "Dashboard",
+      "file": "dashboard.html"
+    },
+    {
+      "name": "Dataset",
+      "file": "dataset.html"
+    },
+    {
+      "name": "Model Training",
+      "file": "model-training.html"
+    },
+    {
+      "name": "Adversarial Attacks",
+      "file": "adversarial-attacks.html"
+    },
+    {
+      "name": "Evaluation Results",
+      "file": "evaluation-results.html"
+    },
+    {
+      "name": "Visualization",
+      "file": "visualization.html"
+    },
+    {
+      "name": "Reports",
+      "file": "reports.html"
+    },
+    {
+      "name": "About Project",
+      "file": "about.html"
+    }
+  ]
+}

@@ -3,7 +3,7 @@
  * All evaluation metrics are fetched from FastAPI.
  * The frontend contains no hardcoded experiment results.
  */
-const API_BASE_URL="http://localhost:8000/api";
+const API_BASE_URL="/api";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
 const n=x=>Number.isFinite(Number(x))?Number(x):null;
@@ -110,4 +110,4 @@ async function load(){
 }
 $("refresh").addEventListener("click",load);$("applyFilter").addEventListener("click",apply);$("resetFilter").addEventListener("click",reset);$("exportCsv").addEventListener("click",exportCSV);
 $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").classList.add("show")});$("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").classList.remove("show")});
-$("logout").addEventListener("click",()=>window.location.href="../login/index.html");load();
+$("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();

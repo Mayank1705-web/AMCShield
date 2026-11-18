@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="model-training.css">
   <script src="auth-guard.js"></script>
+  <script src="security.js"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -23,6 +24,7 @@
       <a class="nav-item" href="evaluation-results.html"><span>◒</span>Evaluation Results</a>
       <a class="nav-item" href="visualization.html"><span>▥</span>Visualization</a>
       <a class="nav-item" href="reports.html"><span>▤</span>Reports</a>
+      <a class="nav-item" href="metrics-reference.html"><span>⊞</span>Metrics Reference</a>
       <a class="nav-item" href="about.html"><span>ⓘ</span>About Project</a>
     </nav>
     <div class="sidebar-bottom">
@@ -78,10 +80,17 @@
         </div>
         <div class="config-grid" id="configGrid"><div class="empty">Waiting for training configuration…</div></div>
         <div class="control-actions">
+          <label class="training-model-label" for="modelSelect">MODEL
+            <select id="modelSelect">
+              <option value="baseline">Baseline Model</option>
+              <option value="robust">Robust Model</option>
+            </select>
+          </label>
           <button class="primary" id="startRun">▶ Start Training</button>
+          <button class="secondary" id="resumeRun">↻ Resume Training</button>
           <button class="secondary" id="stopRun">■ Stop Run</button>
         </div>
-        <div class="command-status" id="commandStatus">Training actions are disabled until the backend exposes the corresponding endpoint.</div>
+        <div class="command-status" id="commandStatus">Dashboard controls are connected. Select a model and explicitly choose an action.</div>
       </article>
 
       <article class="panel progress-panel">
@@ -125,6 +134,7 @@
     <footer><span>AMCShield © 2026</span><span>Medicaps University · Computer Science & Engineering</span><span>Secure AI Research Console</span></footer>
   </main>
 </div>
+<script src="nav-admin.js" defer></script>
 <script src="model-training.js"></script>
 </body>
 </html>

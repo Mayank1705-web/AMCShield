@@ -23,6 +23,7 @@ import torch
 from src.data_loader import create_dataloaders
 from src.model_baseline import BaselineCNN
 from src.train import train_model, load_config
+from src.training_dashboard_hooks import should_stop_training
 
 
 def main():
@@ -99,6 +100,7 @@ def main():
         config=config,
         adversarial_fn=None,
         checkpoint_path=checkpoint_path,
+        should_stop=should_stop_training,
     )
 
     # ------------------------------------------------------------
