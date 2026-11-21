@@ -1,10 +1,10 @@
-from pathlib import Path
+﻿from pathlib import Path
 import hmac
 import mimetypes
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
@@ -43,10 +43,41 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="FastAPI backend for the AMCShield research platform.",
-    docs_url="/docs" if settings.environment.strip().lower() != "production" else None,
+    docs_url=None,
     redoc_url="/redoc" if settings.environment.strip().lower() != "production" else None,
     openapi_url="/openapi.json" if settings.environment.strip().lower() != "production" else None,
 )
+
+
+# ============================================================
+# CUSTOM SWAGGER DOCUMENTATION
+# ============================================================
+
+if settings.environment.strip().lower() != "production":
+
+    @app.get("/docs", include_in_schema=False)
+    async def custom_swagger_docs():
+        return HTMLResponse(
+            content="""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>AMCShield API Documentation</title>
+                <link rel="stylesheet" href="/assets/swagger/swagger-ui.css">
+            </head>
+            <body>
+                <div id="swagger-ui"></div>
+
+                <script src="/assets/swagger/swagger-ui-bundle.js"></script>
+                <script src="/assets/swagger/swagger-ui-standalone-preset.js"></script>
+                <script src="/assets/swagger/swagger-initializer.js"></script>
+            </body>
+            </html>
+            """,
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
 
 
 # ============================================================
