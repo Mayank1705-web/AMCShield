@@ -1,4 +1,4 @@
-﻿
+
 /*
  * AMCShield Dashboard
  *
@@ -213,7 +213,7 @@ function normalizeSeries(payload, key) {
       )
       .map(row => ({
         snr: Number(row.snr),
-        value: Number(row[key]) * 100
+        value: Number(row[key])
       }));
   }
 
@@ -224,7 +224,7 @@ function normalizeSeries(payload, key) {
     return snr
       .map((x, i) => ({
         snr: Number(x),
-        value: Number(values[i]) * 100
+        value: Number(values[i])
       }))
       .filter(point =>
         Number.isFinite(point.snr) &&
@@ -460,7 +460,7 @@ function getAttackSeries(data, selected = "") {
           )
           .map(row => ({
             snr: Number(row.snr),
-            value: Number(row.baseline_asr) * 100
+            value: Number(row.baseline_asr)
           }))
           .filter(point =>
             Number.isFinite(point.snr) &&
@@ -474,7 +474,7 @@ function getAttackSeries(data, selected = "") {
           )
           .map(row => ({
             snr: Number(row.snr),
-            value: Number(row.robust_asr) * 100
+            value: Number(row.robust_asr)
           }))
           .filter(point =>
             Number.isFinite(point.snr) &&
@@ -676,7 +676,7 @@ function renderHeatmap(data) {
 
       // Convert fraction to percentage points for display only.
       const percentagePoints = Number.isFinite(value)
-        ? value * 100
+        ? value
         : NaN;
 
       cell.title =
@@ -730,15 +730,15 @@ function renderComparison(data) {
       row.attack || "N/A",
 
       Number.isFinite(baseline)
-        ? formatPercent(baseline * 100)
+        ? formatPercent(baseline)
         : "N/A",
 
       Number.isFinite(robust)
-        ? formatPercent(robust * 100)
+        ? formatPercent(robust)
         : "N/A",
 
       Number.isFinite(gap)
-        ? `${(gap * 100).toFixed(2)} pp`
+        ? `${gap.toFixed(2)} pp`
         : "N/A"
     ];
 
@@ -845,7 +845,7 @@ function renderSNRDetail(snr) {
 
     strong.textContent = value == null
       ? "N/A"
-      : formatPercent(Number(value) * 100);
+      : formatPercent(Number(value));
 
     card.append(span, strong);
 
