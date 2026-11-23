@@ -12,10 +12,7 @@ from ..services.training_service import TrainingService
 router = APIRouter(
     prefix="/training",
     tags=["Training"],
-    dependencies=[
-        Depends(require_authenticated),
-        Depends(require_admin),
-    ],
+    dependencies=[Depends(require_authenticated)],
 )
 
 service = TrainingService(settings.checkpoints_dir, settings.src_dir)
@@ -75,18 +72,27 @@ def logs():
     return {"success": True, "data": service.logs()}
 
 
-@router.post("/start", dependencies=[Depends(require_csrf)])
+@router.post(
+    "/start",
+    dependencies=[Depends(require_csrf), Depends(require_admin)],
+)
 def start(payload: TrainingRequest | None = None):
     request = payload or TrainingRequest()
     return _run_action(service.start, request.model)
 
 
-@router.post("/resume", dependencies=[Depends(require_csrf)])
+@router.post(
+    "/resume",
+    dependencies=[Depends(require_csrf), Depends(require_admin)],
+)
 def resume(payload: TrainingRequest | None = None):
     request = payload or TrainingRequest()
     return _run_action(service.start, request.model, resume_only=True)
 
 
-@router.post("/stop", dependencies=[Depends(require_csrf)])
+@router.post(
+    "/stop",
+    dependencies=[Depends(require_csrf), Depends(require_admin)],
+)
 def stop():
     return _run_action(service.stop)
