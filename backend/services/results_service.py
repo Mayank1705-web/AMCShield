@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import yaml
 
 
 class ResultsService:
@@ -498,3 +501,578 @@ class ResultsService:
     def dashboard_recent_updates(self) -> list[dict[str, Any]]:
         # The evaluation artifacts do not contain dated activity records.
         return []
+
+    # ------------------------------------------------------------------
+    # Shared helpers for the visualization / reports / attacks pages
+    # ------------------------------------------------------------------
+
+    CONFIG_RELATIVE_PATH = Path("configs") / "config.yaml"
+
+    ATTACK_METHODS = (
+        {
+            "name": "FGSM",
+            "key": "fgsm",
+            "type": "white-box",
+            "description": "Single-step fast gradient sign method.",
+        },
+        {
+            "name": "PGD",
+            "key": "pgd",
+            "type": "white-box",
+            "description": "Projected gradient descent, iterative L-infinity attack.",
+        },
+        {
+            "name": "MIM",
+            "key": "mim",
+            "type": "white-box",
+            "description": "Momentum iterative method with gradient momentum.",
+        },
+        {
+            "name": "C&W",
+            "key": "cw",
+            "type": "white-box",
+            "description": "Carlini-Wagner optimisation attack on a fixed subset per SNR.",
+        },
+        {
+            "name": "Black-box transfer",
+            "key": "blackbox",
+            "type": "black-box",
+            "description": "Surrogate-model transfer attack against the baseline model.",
+        },
+    )
+
+    def _config(self) -> dict[str, Any]:
+        """Read configs/config.yaml (read-only). Returns {} when absent."""
+        path = self.results_dir.parent / self.CONFIG_RELATIVE_PATH
+        if not path.is_file():
+            return {}
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                data = yaml.safe_load(stream) or {}
+        except (OSError, yaml.YAMLError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _try(self, builder, default):
+        """Return builder() or default when result artifacts are unavailable."""
+        try:
+            return builder()
+        except (FileNotFoundError, ValueError):
+            return default
+
+    def visualization_summary(self) -> dict[str, Any]:
+        frame = self._load()
+        summary = self.evaluation_summary()
+        return {
+            "data_points": int(len(frame) * len(self.ATTACKS)),
+            "snr_levels": len(summary["snr_levels"]),
+            "snr_min": summary["snr_min"],
+            "snr_max": summary["snr_max"],
+            "mean_robust_asr": summary["mean_robust_asr"],
+            "mean_baseline_asr": summary["mean_baseline_asr"],
+            "source": summary["source"],
+        }
+
+    def visualization_filters(self) -> dict[str, Any]:
+        filters = self.evaluation_filters()
+        if "snr_levels" not in filters and "snr" in filters:
+            filters["snr_levels"] = filters["snr"]
+        return filters
+
+    def visualization_class_accuracy(self) -> list[dict[str, Any]]:
+        """Per-class accuracy only when a results file really provides it."""
+        for name in ("class_accuracy.csv", "per_class_accuracy.csv"):
+            path = self.results_dir / name
+            if not path.is_file():
+                continue
+            frame = pd.read_csv(path)
+            label = next(
+                (c for c in ("class_name", "class", "label") if c in frame.columns),
+                None,
+            )
+            if label is None or "accuracy" not in frame.columns:
+                continue
+            rows = frame[[label, "accuracy"]].rename(columns={label: "class_name"})
+            return self._records(rows)
+        return []
+
+    def visualization_model_comparison(self) -> list[dict[str, Any]]:
+        summary = self.evaluation_summary()
+        return [
+            {"model": "baseline", "accuracy": summary["baseline_clean_accuracy"]},
+            {"model": "robust", "accuracy": summary["robust_clean_accuracy"]},
+        ]
+
+    # ------------------------------ reports ---------------------------
+
+    def reports_summary(self) -> dict[str, Any]:
+        summary = self.evaluation_summary()
+        generated = self.results_dir.parent / "reports" / "generated"
+        generated_count = (
+            sum(1 for p in generated.glob("*") if p.is_file())
+            if generated.is_dir() else 0
+        )
+        return {
+            "available_reports": len(self.list_files()) + generated_count,
+            "report_count": len(self.list_files()) + generated_count,
+            "robust_clean_accuracy": summary["robust_clean_accuracy"],
+            "baseline_clean_accuracy": summary["baseline_clean_accuracy"],
+            "mean_robust_asr": summary["mean_robust_asr"],
+            "mean_baseline_asr": summary["mean_baseline_asr"],
+            "mean_gap": summary["mean_gap"],
+            "source": summary["source"],
+        }
+
+    def reports_executive_summary(self) -> dict[str, Any]:
+        summary = self.evaluation_summary()
+        robust = summary["mean_robust_asr"]
+        baseline = summary["mean_baseline_asr"]
+        gap = summary["mean_gap"]
+        lead = None
+        if robust is not None and baseline is not None and gap is not None:
+            lead = (
+                f"Across {len(summary['snr_levels'])} SNR levels and "
+                f"{len(summary['attack_scope'])} attack methods, mean attack "
+                f"success rate is {baseline:.2f}% on the baseline model and "
+                f"{robust:.2f}% on the robust model, a gap of {gap:.2f} "
+                f"percentage points."
+            )
+        highlights = self.evaluation_insights()
+        return {"lead": lead, "highlights": highlights}
+
+    def reports_metrics(self) -> list[dict[str, Any]]:
+        summary = self.evaluation_summary()
+        rows = []
+
+        def add(name, baseline, robust):
+            delta = (
+                robust - baseline
+                if baseline is not None and robust is not None else None
+            )
+            rows.append({
+                "metric": name,
+                "baseline": baseline,
+                "robust": robust,
+                "delta": delta,
+            })
+
+        add(
+            "Clean accuracy",
+            summary["baseline_clean_accuracy"],
+            summary["robust_clean_accuracy"],
+        )
+        for row in self.evaluation_comparison():
+            add(
+                f"{row['attack'].upper()} ASR",
+                row["baseline_asr"],
+                row["robust_asr"],
+            )
+        return rows
+
+    def reports_methodology(self) -> list[dict[str, Any]]:
+        """Whitelisted, read-only view of configs/config.yaml."""
+        config = self._config()
+        dataset = config.get("dataset") or {}
+        epsilon = config.get("epsilon")
+        items = [
+            ("Seed", config.get("seed")),
+            ("Dataset", dataset.get("name")),
+            ("SNR range (dB)", dataset.get("snr_range")),
+            ("Epsilons", epsilon),
+            ("PGD steps", config.get("pgd_steps")),
+            ("MIM steps", config.get("mim_steps")),
+            ("Adversarial training ratio", config.get("adv_train_ratio")),
+        ]
+        return [
+            {"key": label, "label": label, "value": value}
+            for label, value in items
+            if value is not None
+        ]
+
+    REQUIRED_RESULT_FILES = (
+        "master_results.csv",
+        "clean_results.csv",
+        "generalization_gap.csv",
+        "metrics.json",
+    )
+
+    def reports_checks(self) -> list[dict[str, Any]]:
+        checks = []
+        for name in self.REQUIRED_RESULT_FILES:
+            present = (self.results_dir / name).is_file()
+            checks.append({
+                "name": name,
+                "status": "ok" if present else "warning",
+                "message": "Present" if present else "Missing from results/",
+            })
+        for attack in self.ATTACKS:
+            for prefix in ("", "baseline_"):
+                name = f"{prefix}{attack}_results.csv"
+                present = (self.results_dir / name).is_file()
+                checks.append({
+                    "name": name,
+                    "status": "ok" if present else "warning",
+                    "message": "Present" if present else "Missing from results/",
+                })
+        return checks
+
+    REPORT_TYPES = ("executive", "metrics", "full")
+    REPORT_SCOPES = ("all", "baseline", "robust")
+
+    def reports_options(self) -> dict[str, Any]:
+        return {
+            "types": [
+                {"value": "executive", "label": "Executive summary"},
+                {"value": "metrics", "label": "Metrics comparison"},
+                {"value": "full", "label": "Full evaluation report"},
+            ],
+            "scopes": [
+                {"value": "all", "label": "All models"},
+                {"value": "baseline", "label": "Baseline model"},
+                {"value": "robust", "label": "Robust model"},
+            ],
+            "versions": ["latest"],
+        }
+
+    def reports_export(self) -> dict[str, Any]:
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "summary": self.reports_summary(),
+            "executive_summary": self.reports_executive_summary(),
+            "metrics": self.reports_metrics(),
+            "methodology": self.reports_methodology(),
+            "checks": self.reports_checks(),
+            "findings": self.evaluation_insights(),
+        }
+
+    def reports_build(self, report_type: str, scope: str) -> dict[str, Any]:
+        report = self.reports_export()
+        report["report_type"] = report_type
+        report["scope"] = scope
+        if report_type == "executive":
+            keep = ("generated_at", "report_type", "scope", "executive_summary")
+        elif report_type == "metrics":
+            keep = ("generated_at", "report_type", "scope", "metrics")
+        else:
+            return self._scope_report(report, scope)
+        return self._scope_report({k: report[k] for k in keep}, scope)
+
+    @staticmethod
+    def _scope_report(report: dict[str, Any], scope: str) -> dict[str, Any]:
+        if scope in ("baseline", "robust") and "metrics" in report:
+            other = "robust" if scope == "baseline" else "baseline"
+            report["metrics"] = [
+                {k: v for k, v in row.items() if k not in (other, "delta")}
+                for row in report["metrics"]
+            ]
+        return report
+
+    @staticmethod
+    def _safe_name(value: str) -> str:
+        return re.sub(r"[^A-Za-z0-9_-]", "", value)[:40] or "report"
+
+    def reports_generate(
+        self,
+        report_type: str,
+        scope: str,
+        fmt: str,
+        version: str,
+    ) -> dict[str, Any]:
+        report = self.reports_build(report_type, scope)
+        out_dir = (self.results_dir.parent / "reports" / "generated").resolve()
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        job_id = f"{self._safe_name(report_type)}-{self._safe_name(scope)}-{stamp}"
+        extension = "md" if fmt == "markdown" else "json"
+        target = (out_dir / f"{job_id}.{extension}").resolve()
+
+        if out_dir not in target.parents:
+            raise ValueError("Invalid report path")
+
+        if extension == "json":
+            text = json.dumps(report, indent=2, default=str)
+        else:
+            text = self._report_markdown(report)
+
+        target.write_text(text, encoding="utf-8")
+        return {
+            "status": "completed",
+            "job_id": job_id,
+            "message": f"Report saved as reports/generated/{target.name}",
+        }
+
+    @staticmethod
+    def _report_markdown(report: dict[str, Any]) -> str:
+        lines = [
+            "# AMCShield evaluation report",
+            "",
+            f"Generated: {report.get('generated_at')}",
+            f"Type: {report.get('report_type')} | Scope: {report.get('scope')}",
+            "",
+        ]
+        executive = report.get("executive_summary") or {}
+        if executive.get("lead"):
+            lines += ["## Executive summary", "", executive["lead"], ""]
+        for item in executive.get("highlights") or []:
+            lines.append(f"- **{item['title']}**: {item['description']}")
+        if executive.get("highlights"):
+            lines.append("")
+        metrics = report.get("metrics") or []
+        if metrics:
+            lines += ["## Metrics", ""]
+            for row in metrics:
+                values = ", ".join(
+                    f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}"
+                    for k, v in row.items() if k != "metric"
+                )
+                lines.append(f"- {row['metric']}: {values}")
+            lines.append("")
+        return "\n".join(lines)
+
+    def reports_preview(self, report_type: str, scope: str) -> dict[str, Any]:
+        report = self.reports_build(report_type, scope)
+        executive = report.get("executive_summary") or {}
+        lead = executive.get("lead")
+        return {
+            "message": lead or "Preview ready; see summary for the report content.",
+            "summary": {
+                "report_type": report_type,
+                "scope": scope,
+                "metric_rows": len(report.get("metrics") or []),
+                "finding_count": len(executive.get("highlights") or []),
+            },
+        }
+
+    # ------------------------------ attacks ---------------------------
+
+    def attacks_overview(self) -> dict[str, Any]:
+        config = self._config()
+        epsilon = (config.get("epsilon") or {}).get("pgd")
+        frame = self._load()
+        summary = self.evaluation_summary()
+        robust_asr = summary["mean_robust_asr"]
+        accuracies = [
+            self._mean(frame, f"{attack}_accuracy") for attack in self.ATTACKS
+        ]
+        accuracies = [v for v in accuracies if v is not None]
+        return {
+            "attack": {
+                "name": "Precomputed evaluation",
+                "status": "idle",
+                "message": (
+                    "Attacks are precomputed offline; the dashboard shows "
+                    "stored results only."
+                ),
+                "mean_asr": robust_asr,
+                "attack_accuracy": (
+                    sum(accuracies) / len(accuracies) if accuracies else None
+                ),
+                "clean_accuracy": summary["robust_clean_accuracy"],
+                "epsilon": epsilon,
+                "norm": "L\u221e",
+                "query_budget": config.get("surrogate_query_budget"),
+                "progress_percent": 0,
+                "phase": "No active attack",
+                "eta": None,
+                "processed": None,
+                "remaining": None,
+                "current_snr": None,
+                "queries": None,
+                "target_model": "robust",
+            }
+        }
+
+    def attacks_results(self) -> list[dict[str, Any]]:
+        frame = self._load()
+        rows = []
+        for attack in self.ATTACKS:
+            asr = self._mean(frame, f"{attack}_asr")
+            rows.append({
+                "attack": attack,
+                "clean_accuracy": self._mean(frame, "clean_accuracy"),
+                "attack_accuracy": self._mean(frame, f"{attack}_accuracy"),
+                "attack_success_rate": asr,
+                "mean_linf": self._mean(frame, f"{attack}_mean_linf"),
+                "mean_l2": self._mean(frame, f"{attack}_mean_l2"),
+                "status": "EVALUATED",
+            })
+        return rows
+
+    def attacks_config(self) -> dict[str, Any]:
+        config = self._config()
+        epsilon = config.get("epsilon") or {}
+        return {
+            "models": ["baseline", "robust"],
+            "methods": [
+                {"name": m["key"], "label": m["name"]}
+                for m in self.ATTACK_METHODS
+            ],
+            "epsilon": epsilon.get("pgd"),
+            "epsilons": epsilon,
+            "steps": config.get("pgd_steps"),
+            "pgd_steps": config.get("pgd_steps"),
+            "mim_steps": config.get("mim_steps"),
+            "cw_eval_subset_size": config.get("cw_eval_subset_size"),
+            "samples_per_snr": config.get("cw_eval_subset_size"),
+            "snr_levels": self._try(
+                lambda: self.evaluation_filters()["snr_levels"], []
+            ),
+            "source": "configs/config.yaml",
+        }
+
+    def attacks_snr_profile(self) -> list[dict[str, Any]]:
+        frame = self._load()
+        rows = []
+        for _, row in frame.iterrows():
+            values = [
+                self._number(row[f"{attack}_asr"]) for attack in self.ATTACKS
+            ]
+            values = [v for v in values if v is not None]
+            rows.append({
+                "snr": int(row["snr"]),
+                "attack_success_rate": (
+                    sum(values) / len(values) if values else None
+                ),
+            })
+        return rows
+
+    def attacks_methods(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": m["name"],
+                "type": m["type"],
+                "description": m["description"],
+            }
+            for m in self.ATTACK_METHODS
+        ]
+
+    def attacks_constraints(self) -> list[dict[str, Any]]:
+        config = self._config()
+        epsilon = (config.get("epsilon") or {}).get("pgd")
+        entries = [
+            ("Norm", "L\u221e"),
+            ("Epsilon", epsilon),
+            ("PGD steps", config.get("pgd_steps")),
+            ("MIM steps", config.get("mim_steps")),
+            ("C&W subset per SNR", config.get("cw_eval_subset_size")),
+            ("Surrogate query budget", config.get("surrogate_query_budget")),
+        ]
+        return [
+            {"label": label, "value": value}
+            for label, value in entries if value is not None
+        ]
+
+    # ------------------------------ project (About page) --------------
+
+    def project_overview(self) -> dict[str, Any]:
+        config = self._config()
+        dataset = config.get("dataset") or {}
+        snr_range = dataset.get("snr_range") or [None, None]
+        return {
+            "status": "available" if config else "unavailable",
+            "num_classes": dataset.get("num_classes"),
+            "class_count": dataset.get("num_classes"),
+            "snr_min": snr_range[0] if len(snr_range) > 0 else None,
+            "snr_max": snr_range[1] if len(snr_range) > 1 else None,
+            "model_count": len(self.MODELS),
+            "source": "configs/config.yaml" if config else None,
+        }
+
+    MODELS = (
+        ("baseline", "Baseline classifier trained on clean signals only."),
+        (
+            "robust",
+            "Classifier adversarially trained with PGD on a mixed "
+            "clean/adversarial batch.",
+        ),
+    )
+
+    def project_mission(self) -> dict[str, Any]:
+        config = self._config()
+        dataset = config.get("dataset") or {}
+        name = dataset.get("name")
+        classes = dataset.get("num_classes")
+        if not name:
+            return {}
+        return {
+            "mission": (
+                f"Evaluate the adversarial robustness of automatic modulation "
+                f"classification on {name}"
+                + (f" ({classes} modulation classes)." if classes else ".")
+            ),
+            "objective": (
+                "Compare a baseline model with a PGD adversarially trained "
+                "robust model across SNR levels."
+            ),
+            "scope": (
+                "Attacks evaluated: "
+                + ", ".join(m["name"] for m in self.ATTACK_METHODS)
+                + ". Attacks are precomputed offline."
+            ),
+        }
+
+    def project_facts(self) -> list[dict[str, Any]]:
+        config = self._config()
+        dataset = config.get("dataset") or {}
+        items = [
+            ("Dataset", dataset.get("name")),
+            ("Modulation classes", dataset.get("num_classes")),
+            ("SNR range (dB)", dataset.get("snr_range")),
+            ("Signal length", dataset.get("signal_length")),
+            ("Input channels", dataset.get("input_channels")),
+            ("Train / val / test split", self._split_text(config)),
+            ("Seed", config.get("seed")),
+        ]
+        return [
+            {"label": label, "value": value}
+            for label, value in items if value is not None
+        ]
+
+    @staticmethod
+    def _split_text(config: dict[str, Any]) -> str | None:
+        parts = [config.get(k) for k in ("train_size", "val_size", "test_size")]
+        if any(part is None for part in parts):
+            return None
+        return " / ".join(f"{float(part) * 100:g}%" for part in parts)
+
+    def project_models(self) -> list[dict[str, Any]]:
+        config = self._config()
+        ratio = config.get("adv_train_ratio")
+        rows = []
+        for name, description in self.MODELS:
+            text = description
+            if name == "robust" and ratio is not None:
+                text = f"{description} Adversarial ratio: {ratio}."
+            rows.append({"name": name, "description": text})
+        return rows
+
+    def project_attacks(self) -> list[dict[str, Any]]:
+        epsilon = (self._config().get("epsilon") or {})
+        rows = []
+        for method in self.ATTACK_METHODS:
+            row = {
+                "name": method["name"],
+                "type": method["type"],
+                "description": method["description"],
+            }
+            if method["key"] in epsilon:
+                row["epsilon"] = epsilon[method["key"]]
+            rows.append(row)
+        return rows
+
+    def project_context(self) -> list[dict[str, Any]]:
+        config = self._config()
+        counts = self._try(self._clean_counts, None)
+        snrs = self._try(lambda: self.evaluation_filters()["snr_levels"], [])
+        items = [
+            ("Evaluated SNR levels", len(snrs) or None),
+            ("Clean test samples", counts["total"] if counts else None),
+            ("C&W subset per SNR", config.get("cw_eval_subset_size")),
+            ("Surrogate query budget", config.get("surrogate_query_budget")),
+            ("Results source", "master_results.csv" if snrs else None),
+        ]
+        return [
+            {"label": label, "value": value}
+            for label, value in items if value is not None
+        ]
