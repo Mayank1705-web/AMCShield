@@ -164,40 +164,14 @@
         if (response.status === 403) {
 
             document.body.innerHTML = `
-                <div
-                    style="
-                        min-height:100vh;
-                        display:grid;
-                        place-items:center;
-                        background:#030706;
-                        color:#fff;
-                        font-family:Inter,sans-serif;
-                        text-align:center;
-                    "
-                >
+                <div class="access-denied">
                     <div>
-
-                        <h1
-                            style="
-                                font-family:Rajdhani;
-                                color:#ffd54f;
-                            "
-                        >
-                            ADMIN ACCESS REQUIRED
-                        </h1>
-
-                        <p style="color:#999">
+                        <h1>ADMIN ACCESS REQUIRED</h1>
+                        <p>
                             Your account does not have
                             administrator privileges.
                         </p>
-
-                        <a
-                            href="/"
-                            style="color:#00d9ff"
-                        >
-                            Return to login
-                        </a>
-
+                        <a href="/">Return to login</a>
                     </div>
                 </div>
             `;

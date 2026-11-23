@@ -249,3 +249,5 @@ footer { padding-top: 22px; text-align: center; color: #59645e; font-size: 10px;
   .card-header h2 { font-size: 29px; }
   .strength ul { grid-template-columns: 1fr; }
 }
+.brand img.logo-failed { display: none; }
+.brand img.logo-failed + .brand-fallback { display: block; }

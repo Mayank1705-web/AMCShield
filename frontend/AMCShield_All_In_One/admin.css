@@ -127,3 +127,9 @@
 #detailNotice.info {
     color: #7eeeff;
 }
+
+/* Shown by admin.js when the signed-in account is not an administrator. */
+.access-denied{min-height:100vh;display:grid;place-items:center;background:#030706;color:#fff;font-family:Inter,sans-serif;text-align:center}
+.access-denied h1{font-family:Rajdhani,sans-serif;color:#ffd54f}
+.access-denied p{color:#999}
+.access-denied a{color:#00d9ff}

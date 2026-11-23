@@ -35,6 +35,15 @@ async function api(path, options={}) {
   return body.data ?? body;
 }
 
+/* CSP-safe dynamic styling: markup carries data-* values, CSSOM applies them. */
+function applyDynamicStyles(root){
+  const scope=root||document;
+  scope.querySelectorAll("[data-w]").forEach(e=>{e.style.width=e.dataset.w});
+  scope.querySelectorAll("[data-h]").forEach(e=>{e.style.height=e.dataset.h});
+  scope.querySelectorAll("[data-bg]").forEach(e=>{e.style.background=e.dataset.bg});
+  scope.querySelectorAll("[data-cols]").forEach(e=>{e.style.setProperty("--cols",e.dataset.cols)});
+}
+
 function setAPI(ok, detail) {
   const box=$("apiStatus");
   box.classList.toggle("online",ok);
@@ -99,8 +108,8 @@ function renderClassDistribution(data) {
   normalized.sort((a,b)=>b.value-a.value);
   normalized.forEach(x=>{
     const row=document.createElement("div");row.className="bar-row";
-    row.innerHTML=`<span class="bar-label" title="${escapeHTML(String(x.name))}">${escapeHTML(String(x.name))}</span><div class="bar-track"><div class="bar-fill" style="width:${max?x.value/max*100:0}%"></div></div><span class="bar-value">${fmt(x.value)}</span>`;
-    box.appendChild(row);
+    row.innerHTML=`<span class="bar-label" title="${escapeHTML(String(x.name))}">${escapeHTML(String(x.name))}</span><div class="bar-track"><div class="bar-fill" data-w="${max?x.value/max*100:0}%"></div></div><span class="bar-value">${fmt(x.value)}</span>`;
+    applyDynamicStyles(row);box.appendChild(row);
   });
   populateClassSelect(normalized);
 }
@@ -168,8 +177,8 @@ function renderSplits(d) {
 
     const row=document.createElement("div");
     row.className="split";
-    row.innerHTML=`<label>${escapeHTML(name)}</label><div class="split-track"><div class="split-fill" style="width:${Math.max(0,Math.min(100,percentage))}%"></div></div><span class="split-value">${escapeHTML(label)}</span>`;
-    box.appendChild(row);
+    row.innerHTML=`<label>${escapeHTML(name)}</label><div class="split-track"><div class="split-fill" data-w="${Math.max(0,Math.min(100,percentage))}%"></div></div><span class="split-value">${escapeHTML(label)}</span>`;
+    applyDynamicStyles(row);box.appendChild(row);
   });
 }
 
