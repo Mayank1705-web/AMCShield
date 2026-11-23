@@ -12,7 +12,7 @@ AMCShield/
 │   ├── routers/            # auth, dashboard, dataset, training, attacks, ...
 │   └── services/
 ├── frontend/
-│   └── AMCShield_All_In_One/   # the UI served by the backend
+│   └── AMCShield_All_In_One/   # the only UI copy, served by the backend
 │       ├── index.html
 │       ├── login.js
 │       ├── security.js         # CSRF-aware fetch helper
