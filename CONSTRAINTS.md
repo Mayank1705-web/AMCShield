@@ -83,3 +83,18 @@ conflict, and ask for explicit permission before proceeding.
   to `main` — branch protection is enabled).
 - Use `--no-ff` merges (or PR merges, which behave equivalently) so `main`'s
   history shows each phase as a distinct, traceable merge point.
+
+## Web layer addendum
+
+The FastAPI backend in `backend/` and the web UI in
+`frontend/AMCShield_All_In_One/` are approved parts of the project. The
+rules above that say "no web framework", "no database", "no user auth",
+"no backend API server" or "no additional pages" (including the
+Streamlit-only frontend) apply **only to the research pipeline**
+(`src/`, notebooks, evaluation scripts).
+
+All protected research constraints still apply unchanged: PGD-only
+adversarial training, the fixed attack suite, SNR stratification,
+surrogate-model independence, the C&W subset limit, and **no live attack
+runs from the dashboard** (attacks are precomputed offline; the
+`/api/attacks/run` and `/api/attacks/stop` routes return HTTP 501).

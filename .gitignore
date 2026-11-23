@@ -76,3 +76,10 @@ backup_*/
 
 # Editor and operating-system files
 .idea/
+
+# Local databases, generated reports and tool backups (added by the web-layer fix)
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+reports/generated/
+.master_fix_backup/
