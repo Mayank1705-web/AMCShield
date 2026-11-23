@@ -727,8 +727,8 @@ function buildRangeBar(metric) {
         <span>${label || "Range"}</span>
       </div>
       <div class="range-track">
-        <div class="range-fill" style="width:${pct}%"></div>
-        <div class="range-marker" style="left:${pct}%"></div>
+        <div class="range-fill" data-w="${pct}%"></div>
+        <div class="range-marker" data-left="${pct}%"></div>
       </div>
     </div>`;
 }
@@ -748,7 +748,6 @@ function buildUsageNote(metric) {
 
 function renderCard(metric, index) {
   const color = catColor(metric.cat);
-  const badgeStyle = `color:${color};border-color:${color}33;background:${color}11;`;
   const catLabel = CATEGORIES[metric.cat]?.label?.replace(/^[①②③④⑤⑥] /, "") ?? metric.cat;
 
   const formula = metric.formula
@@ -757,13 +756,13 @@ function renderCard(metric, index) {
 
   return `
     <article class="metric-card"
-             style="--card-accent:${color}"
+             data-accent="${color}"
              data-cat="${metric.cat}"
              data-name="${metric.name.toLowerCase()}"
              data-alias="${(metric.alias||"").toLowerCase()}"
              data-id="${metric.id}">
       <div class="card-top">
-        <span class="card-badge" style="${badgeStyle}">${catLabel}</span>
+        <span class="card-badge" data-badge="${color}">${catLabel}</span>
         <span class="card-index">#${String(index).padStart(2,"0")}</span>
       </div>
       <div class="card-name">${escHtml(metric.name)}</div>
@@ -782,8 +781,8 @@ function renderSectionDivider(cat) {
   return `
     <div class="section-divider" data-cat="${cat}">
       <div class="section-divider-line"></div>
-      <div class="section-divider-label" style="color:${color};border-color:${color}33">
-        <span class="cat-dot" style="background:${color}"></span>
+      <div class="section-divider-label" data-divider="${color}">
+        <span class="cat-dot" data-dot="${color}"></span>
         ${escHtml(label)}
       </div>
       <div class="section-divider-line"></div>
@@ -810,6 +809,22 @@ function filterMetrics() {
       m.cat.includes(q)
     );
   });
+}
+
+/* CSP-safe dynamic styling: markup carries data-* values, CSSOM applies them. */
+function applyDynamicStyles(root) {
+  root.querySelectorAll("[data-w]").forEach(e => { e.style.width = e.dataset.w; });
+  root.querySelectorAll("[data-left]").forEach(e => { e.style.left = e.dataset.left; });
+  root.querySelectorAll("[data-accent]").forEach(e => { e.style.setProperty("--card-accent", e.dataset.accent); });
+  root.querySelectorAll("[data-badge]").forEach(e => {
+    const c = e.dataset.badge;
+    e.style.color = c; e.style.borderColor = `${c}33`; e.style.background = `${c}11`;
+  });
+  root.querySelectorAll("[data-divider]").forEach(e => {
+    const c = e.dataset.divider;
+    e.style.color = c; e.style.borderColor = `${c}33`;
+  });
+  root.querySelectorAll("[data-dot]").forEach(e => { e.style.background = e.dataset.dot; });
 }
 
 function render() {
@@ -854,6 +869,7 @@ function render() {
     }
   }
   grid.innerHTML = html;
+  applyDynamicStyles(grid);
 }
 
 /* ── TABS ── */
@@ -934,9 +950,13 @@ function setupProfile() {
   } catch {}
 }
 
-document.getElementById("logoutButton")?.addEventListener("click", () => {
-  fetch("/api/auth/logout", { method: "POST", credentials: "include" })
-    .finally(() => { sessionStorage.clear(); window.location.href = "index.html"; });
+document.getElementById("logoutButton")?.addEventListener("click", async () => {
+  try {
+    await AMCShieldSecurity.fetch("/api/auth/logout", { method: "POST" });
+  } finally {
+    sessionStorage.clear();
+    window.location.href = "/";
+  }
 });
 
 /* ── BOOT ── */

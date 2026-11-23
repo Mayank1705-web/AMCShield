@@ -5,10 +5,10 @@
    * AMCShield invite activation flow.
    *
    * Expected backend contract:
-   *   GET  /api/invitations/validate?token=<token>
+   *   GET  /api/account/invite/validate?token=<token>
    *        -> { valid: true, user: { name, email } }
    *
-   *   POST /api/invitations/activate
+   *   POST /api/account/invite/complete
    *        body: { token, password }
    *        -> { success: true, message?: string }
    *
@@ -17,6 +17,17 @@
    */
 
   const API_BASE = "/api";
+
+  // CSP forbids inline onerror handlers, so the logo fallback is wired here.
+  const logo = document.querySelector(".brand img");
+  if (logo) {
+    const hideLogo = () => {
+      logo.hidden = true;
+      logo.classList.add("logo-failed");
+    };
+    logo.addEventListener("error", hideLogo);
+    if (logo.complete && logo.naturalWidth === 0) hideLogo();
+  }
   const VALIDATE_URL = "/api/account/invite/validate";
   const COMPLETE_URL = "/api/account/invite/complete";
 

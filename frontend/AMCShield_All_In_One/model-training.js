@@ -21,6 +21,31 @@ const num=(x,d=0)=>Number.isFinite(Number(x))?Number(x):d;
 const fmt=x=>Number.isFinite(Number(x))?new Intl.NumberFormat("en-IN",{maximumFractionDigits:2}).format(Number(x)):"—";
 const pct=x=>Number.isFinite(Number(x))?`${Number(x).toFixed(2)}%`:"—";
 
+/* CSP-safe dynamic styling: markup carries data-* values, CSSOM applies them. */
+function applyDynamicStyles(root){
+  const scope=root||document;
+  scope.querySelectorAll("[data-w]").forEach(e=>{e.style.width=e.dataset.w});
+  scope.querySelectorAll("[data-h]").forEach(e=>{e.style.height=e.dataset.h});
+  scope.querySelectorAll("[data-bg]").forEach(e=>{e.style.background=e.dataset.bg});
+  scope.querySelectorAll("[data-cols]").forEach(e=>{e.style.setProperty("--cols",e.dataset.cols)});
+}
+
+async function applyRoleGate(){
+  const buttons=["startRun","resumeRun","stopRun"].map($);
+  let isAdmin=false;
+  try{
+    const r=await fetch("/api/auth/me",{credentials:"include",headers:{Accept:"application/json"}});
+    if(r.ok){
+      const body=await r.json();
+      const user=body.user||{};
+      isAdmin=user.role_key==="admin"||String(user.role||"").toLowerCase()==="administrator";
+    }
+  }catch(_){isAdmin=false}
+  if(!isAdmin){
+    buttons.forEach(b=>{if(b)b.disabled=true});
+    $("commandStatus").textContent="Administrator access required to control training.";
+  }
+}
 function setAPI(ok,msg){
   $("apiStatus").classList.toggle("online",ok);$("apiStatus").classList.toggle("offline",!ok);
   $("apiText").textContent=ok?"API ONLINE":"API OFFLINE";$("apiDetail").textContent=msg;
@@ -69,7 +94,7 @@ function renderProgress(d){
   const rows=Array.isArray(d)?d:(d.phases||d.data||[]);
   const box=$("phaseList");box.innerHTML="";
   if(!rows.length){box.innerHTML='<div class="empty">No training phases returned by backend.</div>';return}
-  rows.forEach(x=>{const p=Math.max(0,Math.min(100,num(x.progress_percent??x.progress)));const e=document.createElement("div");e.className="phase";e.innerHTML=`<label>${esc(x.name??x.phase)}</label><div class="phase-track"><div class="phase-fill" style="width:${p}%"></div></div><span class="phase-value">${p.toFixed(1)}%</span>`;box.appendChild(e)})
+  rows.forEach(x=>{const p=Math.max(0,Math.min(100,num(x.progress_percent??x.progress)));const e=document.createElement("div");e.className="phase";e.innerHTML=`<label>${esc(x.name??x.phase)}</label><div class="phase-track"><div class="phase-fill" data-w="${p}%"></div></div><span class="phase-value">${p.toFixed(1)}%</span>`;box.appendChild(e)})
 }
 
 function chartSVG(rows,type){
@@ -85,7 +110,7 @@ function chartSVG(rows,type){
   for(let i=0;i<5;i++){const gy=pad.t+i*(H-pad.t-pad.b)/4;lines+=`<line class="svg-grid" x1="${pad.l}" x2="${W-pad.r}" y1="${gy}" y2="${gy}"/>`}
   const p1=type==="accuracy"?path("a"):path("l"),p2=type==="accuracy"?path("v"):path("vl");
   const legend=type==="accuracy"?`<div class="legend"><span><i class="cyan"></i>Train</span><span><i class="gold"></i>Validation</span></div>`:`<div class="legend"><span><i class="cyan"></i>Train</span><span><i class="gold"></i>Validation</span></div>`;
-  return `${legend}<svg class="svg-chart" viewBox="0 0 ${W} ${H}">${lines}<path class="line-train" d="${p1}"/><path class="line-val" style="stroke:var(--gold)" d="${p2}"/></svg>`;
+  return `${legend}<svg class="svg-chart" viewBox="0 0 ${W} ${H}">${lines}<path class="line-train" d="${p1}"/><path class="line-val" d="${p2}"/></svg>`;
 }
 function renderHistory(d){
   const rows=Array.isArray(d)?d:(d.history||d.data||[]);
@@ -123,7 +148,7 @@ async function load(){
     ["/training/logs",renderLogs]
   ];
   let ok=0;
-  for(const [path,fn] of endpoints){try{const response=await api(path);fn(response?.data??response);ok++}catch(_){/* each panel reports backend absence */}}
+  for(const [path,fn] of endpoints){try{const response=await api(path);fn(response?.data??response);applyDynamicStyles(document);ok++}catch(_){/* each panel reports backend absence */}}
   setAPI(ok>0,ok?`${ok}/${endpoints.length} training endpoints responding`:"Training endpoints unavailable");
   $("updated").textContent=ok?`Updated ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"Not loaded";
   $("refresh").disabled=false;
@@ -149,6 +174,7 @@ $("startRun").addEventListener("click",()=>command("/training/start","Start trai
 $("resumeRun").addEventListener("click",()=>command("/training/resume","Resume training",true));
 $("stopRun").addEventListener("click",()=>command("/training/stop","Stop training"));
 $("refresh").addEventListener("click",load);
+applyRoleGate();
 $("clearLog").addEventListener("click",()=>$("logWindow").innerHTML='<div class="log-empty">Log view cleared. Backend telemetry remains unchanged.</div>');
 $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").style.display="block"});
 $("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").style.display="none"});

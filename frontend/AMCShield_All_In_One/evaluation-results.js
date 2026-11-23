@@ -33,27 +33,30 @@ let filteredRows = [];
    API
 ========================================================= */
 
+function errorText(body, status) {
+  const d = body && (body.detail || body.message);
+  if (typeof d === "string" && d) return d;
+  if (Array.isArray(d) && d.length) return d.map(x => (x && x.msg ? x.msg : String(x))).join("; ");
+  return `HTTP ${status}`;
+}
+
 async function api(path, options = {}) {
-  const r = await fetch(API_BASE_URL + path, {
+  const method = String(options.method || "GET").toUpperCase();
+  const stateChanging = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (stateChanging && !window.AMCShieldSecurity?.fetch) throw new Error("Secure API client is unavailable.");
+  const request = stateChanging ? window.AMCShieldSecurity.fetch : fetch;
+  const r = await request(API_BASE_URL + path, {
+    credentials: "include",
     ...options,
     headers: {
       Accept: "application/json",
       ...(options.headers || {})
     }
   });
-
-  if (!r.ok) {
-    let d = "";
-
-    try {
-      const x = await r.json();
-      d = x.detail || x.message || "";
-    } catch (_) {}
-
-    throw new Error(d || `HTTP ${r.status}`);
-  }
-
-  return r.json();
+  let body = {};
+  try { body = await r.json(); } catch (_) { body = {}; }
+  if (!r.ok || body?.success === false) throw new Error(errorText(body, r.status));
+  return body?.data ?? body;
 }
 
 function setAPI(ok, msg) {

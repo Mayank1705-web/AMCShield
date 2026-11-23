@@ -6,14 +6,26 @@
 const API_BASE_URL="/api";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
-const num=x=>Number.isFinite(Number(x))?Number(x):null;
+const num=x=>x!==null&&x!==undefined&&x!==""&&Number.isFinite(Number(x))?Number(x):null;
 const fmt=x=>num(x)===null?"—":new Intl.NumberFormat("en-IN",{maximumFractionDigits:4}).format(num(x));
 const pct=x=>num(x)===null?"—":`${num(x).toFixed(2)}%`;
 
+function errorText(body,status){
+  const d=body&&(body.detail||body.message);
+  if(typeof d==="string"&&d)return d;
+  if(Array.isArray(d)&&d.length)return d.map(x=>x&&x.msg?x.msg:String(x)).join("; ");
+  return `HTTP ${status}`;
+}
 async function api(path,options={}){
-  const r=await fetch(API_BASE_URL+path,{...options,headers:{"Content-Type":"application/json",Accept:"application/json",...(options.headers||{})}});
-  if(!r.ok){let d="";try{const x=await r.json();d=x.detail||x.message||""}catch(_){}throw new Error(d||`HTTP ${r.status}`)}
-  return r.json();
+  const method=String(options.method||"GET").toUpperCase();
+  const stateChanging=!["GET","HEAD","OPTIONS"].includes(method);
+  if(stateChanging&&!window.AMCShieldSecurity?.fetch)throw new Error("Secure API client is unavailable.");
+  const request=stateChanging?window.AMCShieldSecurity.fetch:fetch;
+  const r=await request(API_BASE_URL+path,{credentials:"include",...options,headers:{Accept:"application/json","Content-Type":"application/json",...(options.headers||{})}});
+  let body={};
+  try{body=await r.json()}catch(_){body={}}
+  if(!r.ok||body?.success===false)throw new Error(errorText(body,r.status));
+  return body?.data??body;
 }
 function setAPI(ok,msg){$("apiStatus").classList.toggle("online",ok);$("apiStatus").classList.toggle("offline",!ok);$("apiText").textContent=ok?"API ONLINE":"API OFFLINE";$("apiDetail").textContent=msg}
 function fillSelect(id,rows,placeholder,key="name"){const s=$(id);s.innerHTML=`<option value="">${placeholder}</option>`;(rows||[]).forEach(x=>{const v=typeof x==="object"?(x[key]??x.value??x.name):x;if(v===undefined)return;const o=document.createElement("option");o.value=v;o.textContent=typeof x==="object"?(x.label??v):v;s.appendChild(o)})}
@@ -23,13 +35,13 @@ function renderOverview(d){
   $("activeAttack").textContent=x.name||x.attack||x.method||"—";$("activeAttackDetail").textContent=x.target_model||x.model||"Target model";
   $("attackStatus").textContent=(x.status||"—").toUpperCase();$("attackStatusDetail").textContent=x.message||"Backend status";
   $("meanASR").textContent=pct(x.attack_success_rate??x.asr??x.mean_asr);$("meanASRDetail").textContent=x.asr_scope||"Backend metric";
-  $("attackAccuracy").textContent=pct(x.attack_accuracy??x.accuracy);$("attackAccuracyDetail").textContent=x.clean_accuracy!==undefined?`Clean: ${pct(x.clean_accuracy)}`:"Backend metric";
-  $("epsilon").textContent=x.epsilon!==undefined?fmt(x.epsilon):"—";$("epsilonDetail").textContent=x.norm||"L∞ constraint";
-  $("queryBudget").textContent=x.query_budget!==undefined?fmt(x.query_budget):"—";$("queryBudgetDetail").textContent=x.query_budget!==undefined?"Maximum queries":"Not applicable";
+  $("attackAccuracy").textContent=pct(x.attack_accuracy??x.accuracy);$("attackAccuracyDetail").textContent=num(x.clean_accuracy)!==null?`Clean: ${pct(x.clean_accuracy)}`:"Backend metric";
+  $("epsilon").textContent=num(x.epsilon)!==null?fmt(x.epsilon):"—";$("epsilonDetail").textContent=x.norm||"L∞ constraint";
+  $("queryBudget").textContent=num(x.query_budget)!==null?fmt(x.query_budget):"—";$("queryBudgetDetail").textContent=num(x.query_budget)!==null?"Maximum queries":"Not applicable";
   $("engineStatus").textContent=x.status||"Backend";$("threatText").textContent=(x.status||"READY").toUpperCase();$("threatDetail").textContent=x.message||"Attack backend";
-  const p=Math.max(0,Math.min(100,num(x.progress_percent)??0));$("progressPct").textContent=x.progress_percent!==undefined?pct(p):"—";$("progressFill").style.width=`${p}%`;
+  const p=Math.max(0,Math.min(100,num(x.progress_percent)??0));$("progressPct").textContent=num(x.progress_percent)!==null?pct(p):"—";$("progressFill").style.width=`${p}%`;
   $("progressLabel").textContent=x.phase||x.status||"No active attack";$("eta").textContent=x.eta||"ETA —";
-  $("processed").textContent=fmt(x.processed);$("remaining").textContent=fmt(x.remaining);$("currentSnr").textContent=x.current_snr!==undefined?`${x.current_snr} dB`:"—";$("queries").textContent=fmt(x.queries);
+  $("processed").textContent=fmt(x.processed);$("remaining").textContent=fmt(x.remaining);$("currentSnr").textContent=num(x.current_snr)!==null?`${x.current_snr} dB`:"—";$("queries").textContent=fmt(x.queries);
 }
 function renderConfig(d){
   const x=d.config||d;
@@ -62,7 +74,7 @@ function renderMethods(d){
   rows.forEach(x=>{const e=document.createElement("div");e.className="method";e.innerHTML=`<span class="method-icon">${esc((x.short_name||x.name||"A").slice(0,2))}</span><div><strong>${esc(x.name||x.attack)}</strong><small>${esc(x.description||x.objective||"Backend attack method")}</small></div><span class="method-tag">${esc(x.type||"ATTACK")}</span>`;box.appendChild(e)})
 }
 function renderConstraints(d){
-  const x=d.constraints||d;const entries=[["Norm",x.norm],["ε",x.epsilon],["Steps",x.steps],["α / Step size",x.alpha??x.step_size],["Queries",x.query_budget],["Confidence / κ",x.kappa],["Optimizer",x.optimizer],["Input clipping",x.input_clipping]].filter(a=>a[1]!==undefined&&a[1]!==null);
+  const x=d.constraints||d;const listed=Array.isArray(x)?x.map(e=>[e.label??e.name,e.value]):null;const entries=listed?listed.filter(a=>a[0]&&a[1]!==undefined&&a[1]!==null):[["Norm",x.norm],["ε",x.epsilon],["Steps",x.steps],["α / Step size",x.alpha??x.step_size],["Queries",x.query_budget],["Confidence / κ",x.kappa],["Optimizer",x.optimizer],["Input clipping",x.input_clipping]].filter(a=>a[1]!==undefined&&a[1]!==null);
   const box=$("constraintGrid");box.innerHTML="";if(!entries.length){box.innerHTML='<div class="empty">No constraint metadata returned by backend.</div>';return}
   entries.forEach(([k,v])=>{const e=document.createElement("div");e.className="constraint";e.innerHTML=`<span>${esc(k)}</span><strong>${esc(typeof v==="object"?JSON.stringify(v):v)}</strong>`;box.appendChild(e)})
 }

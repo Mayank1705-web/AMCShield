@@ -1,6 +1,6 @@
 const API_BASE_URL="/api";
 const $=id=>document.getElementById(id);
-async function api(path){const r=await fetch(API_BASE_URL+path,{headers:{Accept:"application/json"}});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json()}
+async function api(path){const r=await fetch(API_BASE_URL+path,{credentials:"include",headers:{Accept:"application/json"}});let body={};try{body=await r.json()}catch(_){body={}}if(!r.ok||body?.success===false){const d=body?.detail||body?.message;throw Error(typeof d==="string"&&d?d:`HTTP ${r.status}`)}return body?.data??body}
 function text(v){return v===undefined||v===null||v===""?"—":String(v)}
 function esc(v){return text(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function safeUrl(v){
