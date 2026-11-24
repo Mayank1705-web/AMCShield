@@ -1,0 +1,2994 @@
+﻿AMCShield - TRAINING PIPELINE SOURCE REPORT
+Generated: 11/18/2026 04:35:19
+Project: D:\MediCaps University\7 SEM\Project 1\AMCShield
+
+===========================================================================
+FILE: src\train.py
+===========================================================================
+"""
+train.py
+Owner: Mayank Ingole [EN24CS3T10017]
+Phase: 2
+
+Responsibility:
+    Shared generic training loop for baseline and robust models.
+
+Supports:
+    1. Normal supervised training
+    2. Adversarial training through adversarial_fn
+
+Input:
+    DataLoader returning:
+        signals: (B, 2, 1024)
+        labels : (B,)
+        snr    : (B,)
+
+Model output:
+    logits: (B, 24)
+
+Progress:
+    - Overall training progress across all epochs
+    - Per-epoch batch progress
+    - Loss and accuracy shown in tqdm
+"""
+
+import os
+import random
+import sys
+
+# Windows redirects (>> training.log) use the cp1252 codepage, which
+# crashes on characters like a check mark. Never let a print() kill
+# a multi-day training run.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+from pathlib import Path
+from typing import Optional, Callable
+
+import numpy as np
+import torch
+import torch.nn as nn
+import yaml
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from src import utils
+
+
+# ============================================================
+# Crash-safe checkpointing / resume helpers
+#
+# Problem solved:
+#     If the laptop dies (battery, power cut, crash), training
+#     used to restart from epoch 1. Now the FULL training state
+#     is saved regularly and training continues from the exact
+#     epoch AND batch where it stopped.
+# ============================================================
+
+def _atomic_save(obj, path: Path) -> None:
+    """
+    Write a checkpoint so that a power cut can never leave a
+    half-written (corrupt) file behind.
+
+    1. write to  <name>.tmp   (and flush to disk)
+    2. keep the previous good file as <name>.prev
+    3. rename .tmp -> final   (atomic rename)
+    """
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    prev = path.with_name(path.name + ".prev")
+
+    torch.save(obj, tmp)
+
+    try:
+        with open(tmp, "r+b") as handle:
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        pass
+
+    if path.exists():
+        os.replace(path, prev)
+
+    os.replace(tmp, path)
+
+
+def _safe_load(path: Path):
+    """
+    Load a checkpoint; if the main file is missing/corrupt,
+    fall back to the previous good copy (.prev).
+    Returns (checkpoint_dict_or_None, path_used_or_None).
+    """
+    path = Path(path)
+    candidates = [path, path.with_name(path.name + ".prev")]
+
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            ckpt = torch.load(
+                candidate,
+                map_location="cpu",
+                weights_only=False,
+            )
+            return ckpt, candidate
+        except Exception as error:
+            print(
+                f"  ! Could not read {candidate.name}: "
+                f"{str(error)[:80]}"
+            )
+
+    return None, None
+
+
+def _resume_path_for(checkpoint_file: Path) -> Path:
+    """checkpoints/baseline_best.pt -> checkpoints/baseline_resume.pt"""
+    stem = checkpoint_file.stem
+    if stem.endswith("_best"):
+        stem = stem[: -len("_best")]
+    return checkpoint_file.with_name(f"{stem}_resume.pt")
+
+
+def _make_epoch_loader(
+    train_loader,
+    epoch: int,
+    seed: int,
+    start_batch: int,
+):
+    """
+    Build the training DataLoader for one epoch.
+
+    The shuffle order depends only on (seed, epoch), so after a
+    crash the SAME order is regenerated and we simply skip the
+    batches that were already trained (without reading them).
+    """
+    dataset = train_loader.dataset
+    batch_size = train_loader.batch_size
+
+    generator = torch.Generator()
+    generator.manual_seed(int(seed) * 100003 + int(epoch))
+
+    order = torch.randperm(
+        len(dataset),
+        generator=generator,
+    ).tolist()
+
+    order = order[start_batch * batch_size:]
+
+    # Dedicated generator so the DataLoader never consumes the
+    # global torch RNG (keeps resumed runs bit-for-bit identical).
+    loader_generator = torch.Generator()
+    loader_generator.manual_seed(int(seed) * 100003 + int(epoch))
+
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        sampler=order,
+        generator=loader_generator,
+        shuffle=False,
+        num_workers=train_loader.num_workers,
+        pin_memory=train_loader.pin_memory,
+        drop_last=train_loader.drop_last,
+    )
+
+
+def _get_rng_state() -> dict:
+    return {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+        "cuda": (
+            torch.cuda.get_rng_state_all()
+            if torch.cuda.is_available()
+            else None
+        ),
+    }
+
+
+def _set_rng_state(state: dict) -> None:
+    try:
+        random.setstate(state["python"])
+        np.random.set_state(state["numpy"])
+        torch.set_rng_state(state["torch"].cpu())
+        if state.get("cuda") is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(state["cuda"])
+    except Exception as error:
+        print(f"  ! Could not restore RNG state: {error}")
+
+
+# ============================================================
+# Validation
+# ============================================================
+
+def evaluate_model(
+    model: torch.nn.Module,
+    data_loader,
+    criterion,
+    device: torch.device,
+    max_batches: Optional[int] = None,
+):
+    """
+    Evaluate model on a validation/test DataLoader.
+
+    Args:
+        model: PyTorch model.
+        data_loader: Validation or test DataLoader.
+        criterion: Loss function.
+        device: CPU or CUDA device.
+        max_batches: Optional limit for validation batches.
+
+    Returns:
+        average_loss: Average loss over evaluated samples.
+        accuracy: Accuracy as a decimal between 0 and 1.
+    """
+
+    model.eval()
+
+    total_loss = 0.0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+
+        for batch_index, (signals, labels, _snr) in enumerate(data_loader):
+
+            if (
+                max_batches is not None
+                and batch_index >= max_batches
+            ):
+                break
+
+            signals = signals.to(device)
+            labels = labels.to(device)
+
+            logits = model(signals)
+
+            loss = criterion(
+                logits,
+                labels,
+            )
+
+            total_loss += (
+                loss.item()
+                * signals.size(0)
+            )
+
+            predictions = torch.argmax(
+                logits,
+                dim=1,
+            )
+
+            correct += (
+                predictions == labels
+            ).sum().item()
+
+            total += labels.size(0)
+
+    average_loss = (
+        total_loss / total
+        if total > 0
+        else 0.0
+    )
+
+    accuracy = (
+        correct / total
+        if total > 0
+        else 0.0
+    )
+
+    return average_loss, accuracy
+
+
+# ============================================================
+# Training
+# ============================================================
+
+def train_model(
+    model: torch.nn.Module,
+    train_loader,
+    val_loader,
+    config: dict,
+    adversarial_fn: Optional[Callable] = None,
+    checkpoint_path: str = "checkpoints/model.pt",
+    max_train_batches: Optional[int] = None,
+    max_val_batches: Optional[int] = None,
+) -> torch.nn.Module:
+    """
+    Generic training loop.
+
+    If adversarial_fn is None:
+        Normal supervised training.
+
+    If adversarial_fn is provided:
+        Adversarial training through the supplied hook.
+
+    The adversarial function receives:
+
+        model
+        signals
+        labels
+
+    and returns adversarial signals.
+
+    Progress bars:
+        - Overall progress across all epochs
+        - Batch progress inside each epoch
+
+    Checkpointing:
+        Best model is saved whenever validation accuracy improves.
+    """
+
+    # --------------------------------------------------------
+    # Reproducibility
+    # --------------------------------------------------------
+
+    utils.set_seed(
+        config.get("seed", 42)
+    )
+
+    # --------------------------------------------------------
+    # Device
+    # --------------------------------------------------------
+
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
+
+    print("=" * 70)
+    print("AMCShield Training")
+    print("=" * 70)
+
+    print()
+    print(f"Device : {device}")
+
+    # --------------------------------------------------------
+    # Move model
+    # --------------------------------------------------------
+
+    model = model.to(device)
+
+    # --------------------------------------------------------
+    # Training configuration
+    # --------------------------------------------------------
+
+    batch_size = config.get(
+        "batch_size",
+        128,
+    )
+
+    epochs = config.get(
+        "epochs",
+        30,
+    )
+
+    learning_rate = config.get(
+        "learning_rate",
+        0.001,
+    )
+
+    # --------------------------------------------------------
+    # Loss
+    #
+    # label_smoothing regularizes against over-confident
+    # predictions, which tends to generalize better on the
+    # ambiguous low-SNR / easily-confused modulation pairs
+    # (e.g. QAM16 vs QAM64, AM-DSB vs AM-SSB) in RadioML.
+    # --------------------------------------------------------
+
+    label_smoothing = config.get(
+        "label_smoothing",
+        0.1,
+    )
+
+    criterion = nn.CrossEntropyLoss(
+        label_smoothing=label_smoothing
+    )
+
+    # --------------------------------------------------------
+    # Optimizer
+    #
+    # AdamW (decoupled weight decay) instead of plain Adam.
+    # --------------------------------------------------------
+
+    weight_decay = config.get(
+        "weight_decay",
+        1e-4,
+    )
+
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay,
+    )
+
+    # --------------------------------------------------------
+    # LR scheduler
+    #
+    # Reduces the learning rate once validation accuracy
+    # plateaus, instead of training at a single fixed LR for
+    # all epochs.
+    # --------------------------------------------------------
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=3,
+    )
+
+    # --------------------------------------------------------
+    # Early stopping
+    # --------------------------------------------------------
+
+    early_stopping_patience = config.get(
+        "early_stopping_patience",
+        7,
+    )
+
+    epochs_without_improvement = 0
+
+    # --------------------------------------------------------
+    # Checkpoint directory
+    # --------------------------------------------------------
+
+    checkpoint_file = Path(
+        checkpoint_path
+    )
+
+    checkpoint_file.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # --------------------------------------------------------
+    # Best validation accuracy
+    # --------------------------------------------------------
+
+    best_val_accuracy = -1.0
+
+    # --------------------------------------------------------
+    # Training history
+    # --------------------------------------------------------
+
+    history = {
+        "train_loss": [],
+        "train_accuracy": [],
+        "val_loss": [],
+        "val_accuracy": [],
+    }
+
+    # ========================================================
+    # RESUME SUPPORT
+    #
+    # resume_file  : full training state, saved often.
+    #                (model + optimizer + scheduler + epoch +
+    #                 batch + history + RNG)
+    # checkpoint_file (baseline_best.pt): best model only.
+    #
+    # Fresh start instead of resume:
+    #     set environment variable AMC_FRESH=1
+    #     (or delete checkpoints/<name>_resume.pt)
+    # ========================================================
+
+    seed = config.get("seed", 42)
+
+    resume_file = _resume_path_for(checkpoint_file)
+
+    save_every_batches = int(
+        config.get("resume_save_every_batches", 500)
+    )
+
+    start_epoch = 1
+    start_batch = 0
+    resume_running_loss = 0.0
+    resume_correct = 0
+    resume_total = 0
+    early_stopped = False
+
+    fresh = os.environ.get("AMC_FRESH", "0") == "1"
+    warmstart = os.environ.get("AMC_WARMSTART", "0") == "1"
+
+    state, used_path = (
+        (None, None) if fresh else _safe_load(resume_file)
+    )
+
+    if state is not None:
+
+        model.load_state_dict(state["model_state_dict"])
+        optimizer.load_state_dict(state["optimizer_state_dict"])
+        scheduler.load_state_dict(state["scheduler_state_dict"])
+
+        start_epoch = state["epoch"]
+        start_batch = state["batch"]
+        resume_running_loss = state["running_loss"]
+        resume_correct = state["correct"]
+        resume_total = state["total"]
+        best_val_accuracy = state["best_val_accuracy"]
+        epochs_without_improvement = state[
+            "epochs_without_improvement"
+        ]
+        history = state["history"]
+        early_stopped = state.get("early_stopped", False)
+
+        # If batch size changed, a mid-epoch position is invalid.
+        if state.get("batch_size") != batch_size:
+            start_batch = 0
+            resume_running_loss = 0.0
+            resume_correct = 0
+            resume_total = 0
+
+        _set_rng_state(state["rng"])
+
+        print()
+        print("=" * 70)
+        print(f"RESUMING from {used_path}")
+        print(
+            f"  -> epoch {start_epoch}/{epochs}, "
+            f"batch {start_batch} "
+            f"(best val acc so far: "
+            f"{best_val_accuracy * 100:.2f}%)"
+        )
+        print("=" * 70)
+
+    elif warmstart and not fresh:
+
+        # One-time rescue: continue from an existing *_best.pt
+        # (e.g. a run that started before resume support).
+        best_ckpt, best_used = _safe_load(checkpoint_file)
+
+        if best_ckpt is not None:
+
+            model.load_state_dict(best_ckpt["model_state_dict"])
+
+            if "optimizer_state_dict" in best_ckpt:
+                optimizer.load_state_dict(
+                    best_ckpt["optimizer_state_dict"]
+                )
+
+            start_epoch = int(best_ckpt.get("epoch", 0)) + 1
+            best_val_accuracy = float(
+                best_ckpt.get("val_accuracy", -1.0)
+            )
+
+            print()
+            print("=" * 70)
+            print(f"WARM START from {best_used}")
+            print(
+                f"  -> continuing at epoch {start_epoch}/{epochs} "
+                f"(best val acc: {best_val_accuracy * 100:.2f}%)"
+            )
+            print("=" * 70)
+
+    elif fresh:
+        print("AMC_FRESH=1 -> ignoring any saved resume state.")
+
+    def save_resume_state(
+        next_epoch: int,
+        next_batch: int,
+        run_loss: float,
+        run_correct: int,
+        run_total: int,
+        stopped: bool = False,
+    ) -> None:
+        """Snapshot everything needed to continue training."""
+        _atomic_save(
+            {
+                "epoch": next_epoch,
+                "batch": next_batch,
+                "batch_size": batch_size,
+                "running_loss": run_loss,
+                "correct": run_correct,
+                "total": run_total,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "best_val_accuracy": best_val_accuracy,
+                "epochs_without_improvement": (
+                    epochs_without_improvement
+                ),
+                "history": history,
+                "early_stopped": stopped,
+                "rng": _get_rng_state(),
+                "config": config,
+            },
+            resume_file,
+        )
+
+    # ========================================================
+    # Overall training progress
+    # ========================================================
+
+    print()
+    print("Training progress:")
+    print()
+
+    overall_progress = tqdm(
+        total=epochs,
+        initial=min(start_epoch - 1, epochs),
+        desc="Overall Training",
+        unit="epoch",
+        dynamic_ncols=True,
+        position=0,
+    )
+
+    # ========================================================
+    # Epoch loop
+    # ========================================================
+
+    if early_stopped or start_epoch > epochs:
+        print()
+        print(
+            "Saved state says training already finished "
+            "(set AMC_FRESH=1 to retrain from scratch)."
+        )
+
+    for epoch in range(
+        start_epoch,
+        epochs + 1,
+    ):
+
+        if early_stopped:
+            break
+
+        model.train()
+
+        # Continue mid-epoch if we are resuming this very epoch.
+        if epoch == start_epoch and start_batch > 0:
+            first_batch = start_batch
+            running_loss = resume_running_loss
+            correct = resume_correct
+            total = resume_total
+        else:
+            first_batch = 0
+            running_loss = 0.0
+            correct = 0
+            total = 0
+
+        epoch_loader = _make_epoch_loader(
+            train_loader,
+            epoch,
+            seed,
+            first_batch,
+        )
+
+        # ----------------------------------------------------
+        # Determine number of batches for progress bar
+        # ----------------------------------------------------
+
+        if max_train_batches is not None:
+            epoch_total_batches = min(
+                len(train_loader),
+                max_train_batches,
+            )
+        else:
+            epoch_total_batches = len(train_loader)
+
+        # ----------------------------------------------------
+        # Batch progress bar
+        # ----------------------------------------------------
+
+        batch_progress = tqdm(
+            enumerate(epoch_loader, start=first_batch),
+            total=epoch_total_batches,
+            initial=first_batch,
+            desc=f"Epoch {epoch:02d}/{epochs:02d}",
+            unit="batch",
+            dynamic_ncols=True,
+            position=1,
+            leave=True,
+        )
+
+        # ----------------------------------------------------
+        # Batch loop
+        # ----------------------------------------------------
+
+        for batch_index, (
+            signals,
+            labels,
+            _snr,
+        ) in batch_progress:
+
+            if (
+                max_train_batches is not None
+                and batch_index >= max_train_batches
+            ):
+                break
+
+            signals = signals.to(device)
+            labels = labels.to(device)
+
+            # ------------------------------------------------
+            # Generate adversarial examples if requested.
+            #
+            # adv_train_ratio controls what fraction of each
+            # batch is adversarially perturbed; the rest stays
+            # clean. This mixing (rather than attacking 100%
+            # of every batch) is what lets the robust model
+            # keep clean accuracy close to the baseline while
+            # still training against PGD examples.
+            #
+            # adv_train_ratio=1.0 (or omitted) reproduces the
+            # previous behavior of attacking every batch.
+            # ------------------------------------------------
+
+            if adversarial_fn is not None:
+
+                adv_train_ratio = float(
+                    config.get("adv_train_ratio", 1.0)
+                )
+
+                batch_size_actual = signals.size(0)
+
+                num_adv = int(
+                    round(
+                        adv_train_ratio
+                        * batch_size_actual
+                    )
+                )
+
+                if num_adv <= 0:
+
+                    pass
+
+                elif num_adv >= batch_size_actual:
+
+                    signals = adversarial_fn(
+                        model,
+                        signals,
+                        labels,
+                    )
+
+                else:
+
+                    adv_signals = adversarial_fn(
+                        model,
+                        signals[:num_adv],
+                        labels[:num_adv],
+                    )
+
+                    signals = torch.cat(
+                        [adv_signals, signals[num_adv:]],
+                        dim=0,
+                    )
+
+            # ------------------------------------------------
+            # Clear gradients
+            # ------------------------------------------------
+
+            optimizer.zero_grad()
+
+            # ------------------------------------------------
+            # Forward pass
+            # ------------------------------------------------
+
+            logits = model(
+                signals
+            )
+
+            # ------------------------------------------------
+            # Loss
+            # ------------------------------------------------
+
+            loss = criterion(
+                logits,
+                labels,
+            )
+
+            # ------------------------------------------------
+            # Backpropagation
+            # ------------------------------------------------
+
+            loss.backward()
+
+            # ------------------------------------------------
+            # Gradient clipping (helps stability, especially
+            # on batches containing adversarial examples).
+            # ------------------------------------------------
+
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                max_norm=5.0,
+            )
+
+            # ------------------------------------------------
+            # Update weights
+            # ------------------------------------------------
+
+            optimizer.step()
+
+            # ------------------------------------------------
+            # Metrics
+            # ------------------------------------------------
+
+            running_loss += (
+                loss.item()
+                * signals.size(0)
+            )
+
+            predictions = torch.argmax(
+                logits,
+                dim=1,
+            )
+
+            batch_correct = (
+                predictions == labels
+            ).sum().item()
+
+            correct += batch_correct
+
+            total += labels.size(0)
+
+            # ------------------------------------------------
+            # Current batch accuracy
+            # ------------------------------------------------
+
+            batch_accuracy = (
+                batch_correct / labels.size(0)
+            ) * 100.0
+
+            # ------------------------------------------------
+            # Running training metrics
+            # ------------------------------------------------
+
+            running_accuracy = (
+                correct / total
+            ) * 100.0 if total > 0 else 0.0
+
+            running_loss_average = (
+                running_loss / total
+            ) if total > 0 else 0.0
+
+            # ------------------------------------------------
+            # Update batch progress bar
+            # ------------------------------------------------
+
+            batch_progress.set_postfix(
+                loss=f"{running_loss_average:.4f}",
+                acc=f"{running_accuracy:.2f}%",
+                batch_acc=f"{batch_accuracy:.1f}%",
+            )
+
+            # ------------------------------------------------
+            # Periodic crash-safe snapshot (mid-epoch).
+            # On restart, training continues from the next batch.
+            # ------------------------------------------------
+
+            if (
+                save_every_batches > 0
+                and (batch_index + 1) % save_every_batches == 0
+            ):
+                save_resume_state(
+                    epoch,
+                    batch_index + 1,
+                    running_loss,
+                    correct,
+                    total,
+                )
+
+        # ----------------------------------------------------
+        # Close batch progress bar
+        # ----------------------------------------------------
+
+        batch_progress.close()
+
+        # ----------------------------------------------------
+        # Epoch training metrics
+        # ----------------------------------------------------
+
+        train_loss = (
+            running_loss / total
+            if total > 0
+            else 0.0
+        )
+
+        train_accuracy = (
+            correct / total
+            if total > 0
+            else 0.0
+        )
+
+        # ----------------------------------------------------
+        # Validation
+        # ----------------------------------------------------
+
+        val_loss, val_accuracy = evaluate_model(
+            model=model,
+            data_loader=val_loader,
+            criterion=criterion,
+            device=device,
+            max_batches=max_val_batches,
+        )
+
+        # ----------------------------------------------------
+        # Save history
+        # ----------------------------------------------------
+
+        history["train_loss"].append(
+            train_loss
+        )
+
+        history["train_accuracy"].append(
+            train_accuracy
+        )
+
+        history["val_loss"].append(
+            val_loss
+        )
+
+        history["val_accuracy"].append(
+            val_accuracy
+        )
+
+        # ----------------------------------------------------
+        # Print epoch result
+        # ----------------------------------------------------
+
+        print(
+            f"\nEpoch [{epoch:02d}/{epochs:02d}] "
+            f"| Train Loss: {train_loss:.4f} "
+            f"| Train Acc: {train_accuracy * 100:.2f}% "
+            f"| Val Loss: {val_loss:.4f} "
+            f"| Val Acc: {val_accuracy * 100:.2f}%"
+        )
+
+        # ----------------------------------------------------
+        # LR scheduler step (driven by validation accuracy)
+        # ----------------------------------------------------
+
+        scheduler.step(val_accuracy)
+
+        current_lr = optimizer.param_groups[0]["lr"]
+
+        # ----------------------------------------------------
+        # Save best model
+        # ----------------------------------------------------
+
+        if val_accuracy > best_val_accuracy:
+
+            best_val_accuracy = val_accuracy
+
+            epochs_without_improvement = 0
+
+            _atomic_save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_accuracy": val_accuracy,
+                    "val_loss": val_loss,
+                    "config": config,
+                },
+                checkpoint_file,
+            )
+
+            print(
+                f"  [OK] Best checkpoint saved: "
+                f"{checkpoint_file}"
+            )
+
+        else:
+
+            epochs_without_improvement += 1
+
+            print(
+                f"  No improvement for "
+                f"{epochs_without_improvement} epoch(s) "
+                f"(patience={early_stopping_patience}) "
+                f"| LR: {current_lr:.6f}"
+            )
+
+        # ----------------------------------------------------
+        # Update overall progress
+        # ----------------------------------------------------
+
+        overall_progress.update(1)
+
+        overall_progress.set_postfix(
+            epoch=f"{epoch}/{epochs}",
+            train_acc=f"{train_accuracy * 100:.2f}%",
+            val_acc=f"{val_accuracy * 100:.2f}%",
+            lr=f"{current_lr:.6f}",
+        )
+
+        # ----------------------------------------------------
+        # Early stopping
+        # ----------------------------------------------------
+
+        stop_now = (
+            epochs_without_improvement >= early_stopping_patience
+        )
+
+        # Epoch fully done: next run starts at the NEXT epoch.
+        save_resume_state(
+            epoch + 1,
+            0,
+            0.0,
+            0,
+            0,
+            stopped=stop_now,
+        )
+
+        if stop_now:
+
+            print()
+            print(
+                f"Early stopping triggered after {epoch} "
+                f"epochs (no val improvement for "
+                f"{early_stopping_patience} epochs)."
+            )
+
+            break
+
+    # ========================================================
+    # Close overall progress
+    # ========================================================
+
+    overall_progress.close()
+
+    # ========================================================
+    # Training completed
+    # ========================================================
+
+    print()
+    print("=" * 70)
+    print("TRAINING COMPLETED")
+    print("=" * 70)
+
+    print(
+        f"Best validation accuracy: "
+        f"{best_val_accuracy * 100:.2f}%"
+    )
+
+    print(
+        f"Best checkpoint: "
+        f"{checkpoint_file}"
+    )
+
+    return model
+
+
+# ============================================================
+# Configuration
+# ============================================================
+
+def load_config(
+    path: str = "configs/config.yaml",
+) -> dict:
+    """
+    Load YAML configuration.
+    """
+
+    with open(
+        path,
+        "r",
+        encoding="utf-8",
+    ) as file:
+
+        return yaml.safe_load(file)
+
+
+# ============================================================
+# Manual sanity test
+# ============================================================
+
+if __name__ == "__main__":
+
+    print("=" * 70)
+    print("AMCShield Training Module")
+    print("=" * 70)
+
+    config = load_config()
+
+    print()
+    print(
+        "Configuration loaded successfully."
+    )
+
+    print(
+        f"Batch size     : "
+        f"{config.get('batch_size')}"
+    )
+
+    print(
+        f"Epochs         : "
+        f"{config.get('epochs')}"
+    )
+
+    print(
+        f"Learning rate  : "
+        f"{config.get('learning_rate')}"
+    )
+
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
+
+    print(
+        f"Device         : {device}"
+    )
+
+    print()
+    print(
+        "Training module syntax and "
+        "configuration test passed."
+    )
+
+===========================================================================
+FILE: src\train_robust.py
+===========================================================================
+"""
+train_robust.py
+
+AMCShield - Robust CNN Training Runner
+
+Purpose:
+    Train RobustCNN using PGD adversarial training.
+
+Dataset:
+    RadioML 2018.01A
+
+Input:
+    (B, 2, 1024)
+
+Classes:
+    24
+
+Training:
+    PGD ONLY
+
+Output:
+    checkpoints/robust_best.pt
+"""
+
+import torch
+
+from src.data_loader import create_dataloaders
+from src.model_robust import RobustCNN
+from src.train import train_model, load_config
+import argparse
+from src.attacks import pgd_attack
+
+
+def main():
+
+    print("=" * 70)
+    print("AMCShield Robust CNN Training")
+    print("=" * 70)
+
+    # ------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------
+
+    config = load_config()
+
+    # ------------------------------------------------------------
+    # Optional command-line overrides. Every option defaults to
+    # "no change", and they only modify THIS run's in-memory config,
+    # never config.yaml, so the evaluation scripts keep using the
+    # shared values (e.g. pgd_steps: 10 for attacking).
+    # ------------------------------------------------------------
+    parser = argparse.ArgumentParser(
+        description="PGD adversarial training of RobustCNN"
+    )
+    parser.add_argument(
+        "--init-from", default=None,
+        help="start from this checkpoint (adversarial fine-tuning), "
+             "e.g. checkpoints/baseline_best.pt",
+    )
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument(
+        "--lr", type=float, default=None,
+        help="learning rate (use about 1e-4 when fine-tuning)",
+    )
+    parser.add_argument(
+        "--pgd-steps", type=int, default=None,
+        help="PGD steps used DURING TRAINING only",
+    )
+    parser.add_argument(
+        "--max-train-batches", type=int, default=None,
+        help="cap the number of training batches per epoch",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="print the resolved settings and exit without training",
+    )
+    args = parser.parse_args()
+
+    if args.epochs is not None:
+        config["epochs"] = args.epochs
+    if args.lr is not None:
+        config["learning_rate"] = args.lr
+
+    batch_size = config.get("batch_size", 128)
+    num_classes = config["dataset"].get("num_classes", 24)
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+    print(f"Dataset      : {config['dataset']['name']}")
+    print(f"Classes      : {num_classes}")
+    print(f"Batch size   : {batch_size}")
+    print(f"Epochs       : {config.get('epochs', 30)}")
+    print(f"Learning rate: {config.get('learning_rate', 0.001)}")
+    print(f"Device       : {device}")
+
+    # ------------------------------------------------------------
+    # PGD configuration
+    # ------------------------------------------------------------
+
+    attack_config = config.get("attack", {})
+
+    epsilon_config = attack_config.get(
+        "epsilon",
+        config.get("epsilon", 0.02)
+    )
+
+    # ------------------------------------------------------------
+    # IMPORTANT:
+    # The configuration may contain:
+    #
+    # epsilon:
+    #   fgsm: 0.02
+    #   pgd: 0.02
+    #   mim: 0.02
+    #
+    # For robust training we MUST use PGD epsilon only.
+    # ------------------------------------------------------------
+
+    if isinstance(epsilon_config, dict):
+
+        pgd_epsilon = float(
+            epsilon_config.get("pgd", 0.02)
+        )
+
+    else:
+
+        pgd_epsilon = float(
+            epsilon_config
+        )
+
+    pgd_steps = attack_config.get(
+        "pgd_steps",
+        config.get("pgd_steps", 10)
+    )
+
+    pgd_steps = int(pgd_steps)
+    if args.pgd_steps is not None:
+        pgd_steps = args.pgd_steps
+
+    print(f"PGD epsilon  : {pgd_epsilon}")
+    print(f"PGD steps    : {pgd_steps}")
+    print(
+        f"Init from    : "
+        f"{args.init_from or 'random initialisation (from scratch)'}"
+    )
+    print(f"Batches/epoch: {args.max_train_batches or 'all'}")
+
+    if args.dry_run:
+        print("\nDry run: nothing was trained. These are the settings "
+              "that would be used.")
+        return
+
+    # ------------------------------------------------------------
+    # DataLoaders
+    # ------------------------------------------------------------
+
+    print("\nCreating DataLoaders...")
+
+    train_loader, val_loader, test_loader = create_dataloaders(
+        batch_size=batch_size,
+        num_workers=0,
+    )
+
+    print(f"Train batches : {len(train_loader):,}")
+    print(f"Val batches   : {len(val_loader):,}")
+    print(f"Test batches  : {len(test_loader):,}")
+
+    # ------------------------------------------------------------
+    # Model
+    # ------------------------------------------------------------
+
+    print("\nCreating RobustCNN...")
+
+    model = RobustCNN(
+        num_classes=num_classes
+    )
+
+    if args.init_from:
+        init_ckpt = torch.load(
+            args.init_from, map_location="cpu", weights_only=False
+        )
+        init_state = (
+            init_ckpt.get("model_state_dict")
+            or init_ckpt.get("state_dict")
+            or init_ckpt
+        )
+        model.load_state_dict(init_state)
+        print(f"Initialised from: {args.init_from}")
+
+    total_params = sum(
+        p.numel()
+        for p in model.parameters()
+    )
+
+    trainable_params = sum(
+        p.numel()
+        for p in model.parameters()
+        if p.requires_grad
+    )
+
+    print(
+        f"Total parameters     : "
+        f"{total_params:,}"
+    )
+
+    print(
+        f"Trainable parameters : "
+        f"{trainable_params:,}"
+    )
+
+    # ------------------------------------------------------------
+    # PGD adversarial training hook
+    # ------------------------------------------------------------
+
+    def adversarial_fn(model, signals, labels):
+
+        return pgd_attack(
+            model=model,
+            x=signals,
+            y=labels,
+            epsilon=pgd_epsilon,
+            steps=pgd_steps,
+        )
+
+    # ------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------
+
+    checkpoint_path = (
+        "checkpoints/robust_best.pt"
+    )
+
+    print("\nStarting PGD adversarial training...")
+    print(
+        f"Checkpoint: {checkpoint_path}"
+    )
+
+    print("=" * 70)
+
+    model = train_model(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        config=config,
+        adversarial_fn=adversarial_fn,
+        checkpoint_path=checkpoint_path,
+        max_train_batches=args.max_train_batches,
+    )
+
+    # ------------------------------------------------------------
+    # Complete
+    # ------------------------------------------------------------
+
+    print("\n" + "=" * 70)
+    print("ROBUST TRAINING COMPLETED")
+    print("=" * 70)
+
+    print(
+        f"Best checkpoint: "
+        f"{checkpoint_path}"
+    )
+
+
+if __name__ == "__main__":
+    main()
+
+===========================================================================
+FILE: src\train_baseline.py
+===========================================================================
+"""
+train_baseline.py
+AMCShield - Baseline CNN Training Runner
+
+Purpose:
+    Wire the RadioML 2018.01A DataLoaders, BaselineCNN, and generic
+    train_model() function into a baseline training experiment.
+
+The model is trained with standard supervised learning.
+No adversarial training is used here.
+
+Input:
+    RadioML 2018.01A
+    X shape: (2, 1024)
+    Classes: 24
+
+Output:
+    checkpoints/baseline_best.pt
+"""
+
+import torch
+
+from src.data_loader import create_dataloaders
+from src.model_baseline import BaselineCNN
+from src.train import train_model, load_config
+
+
+def main():
+    print("=" * 70)
+    print("AMCShield Baseline CNN Training")
+    print("=" * 70)
+
+    # ------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------
+    config = load_config()
+
+    batch_size = config.get("batch_size", 128)
+    num_classes = config["dataset"].get("num_classes", 24)
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+    print(f"Dataset      : {config['dataset']['name']}")
+    print(f"Classes      : {num_classes}")
+    print(f"Batch size   : {batch_size}")
+    print(f"Epochs       : {config.get('epochs', 30)}")
+    print(f"Learning rate: {config.get('learning_rate', 0.001)}")
+    print(f"Device       : {device}")
+
+    # ------------------------------------------------------------
+    # DataLoaders
+    # ------------------------------------------------------------
+    print("\nCreating DataLoaders...")
+
+    train_loader, val_loader, test_loader = create_dataloaders(
+        batch_size=batch_size,
+        num_workers=0,
+    )
+
+    print(f"Train batches : {len(train_loader):,}")
+    print(f"Val batches   : {len(val_loader):,}")
+    print(f"Test batches  : {len(test_loader):,}")
+
+    # ------------------------------------------------------------
+    # Model
+    # ------------------------------------------------------------
+    print("\nCreating BaselineCNN...")
+
+    model = BaselineCNN(num_classes=num_classes)
+
+    total_params = sum(
+        p.numel() for p in model.parameters()
+    )
+
+    trainable_params = sum(
+        p.numel()
+        for p in model.parameters()
+        if p.requires_grad
+    )
+
+    print(f"Total parameters     : {total_params:,}")
+    print(f"Trainable parameters : {trainable_params:,}")
+
+    # ------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------
+    checkpoint_path = "checkpoints/baseline_best.pt"
+
+    print("\nStarting baseline training...")
+    print(f"Checkpoint: {checkpoint_path}")
+    print("=" * 70)
+
+    model = train_model(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        config=config,
+        adversarial_fn=None,
+        checkpoint_path=checkpoint_path,
+    )
+
+    # ------------------------------------------------------------
+    # Complete
+    # ------------------------------------------------------------
+    print("\n" + "=" * 70)
+    print("BASELINE TRAINING COMPLETED")
+    print("=" * 70)
+    print(f"Best checkpoint: {checkpoint_path}")
+
+
+if __name__ == "__main__":
+    main()
+
+===========================================================================
+FILE: src\model_baseline.py
+===========================================================================
+"""
+model_baseline.py
+Owner: Mayank Ingole [EN24CS3T10017]
+Phase: 2 (Week 2-3)
+
+Responsibility:
+    CNN architecture for RadioML 2018.01A modulation
+    classification.
+
+Input:
+    (batch, 2, 1024)
+
+Output:
+    (batch, 24) logits
+
+Important:
+    The model returns raw logits.
+    Softmax is NOT applied here because CrossEntropyLoss expects
+    raw logits during training.
+
+Revision note:
+    Upgraded from the original 3-block plain CNN to a deeper
+    residual CNN with squeeze-excite (SE) attention and combined
+    avg+max global pooling. The original architecture pooled to
+    a single timestep after only 128 timesteps of context, which
+    discards temporal/phase structure that matters for
+    discriminating modulations (e.g. PSK vs QAM families) and is
+    part of why accuracy plateaued below what this dataset can
+    support. RobustCNN (model_robust.py) subclasses this class,
+    so it benefits from the same upgrade automatically.
+"""
+
+
+import torch
+import torch.nn as nn
+
+
+class SEBlock1d(nn.Module):
+    """
+    Squeeze-and-excitation block for 1D feature maps.
+
+    Learns a per-channel gate from the global context of the
+    sequence, letting the network emphasize the channels that
+    are most discriminative for a given signal rather than
+    treating every channel equally.
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        reduction: int = 8,
+    ):
+        super().__init__()
+
+        hidden = max(
+            channels // reduction,
+            4,
+        )
+
+        self.pool = nn.AdaptiveAvgPool1d(1)
+
+        self.gate = nn.Sequential(
+            nn.Linear(channels, hidden),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden, channels),
+            nn.Sigmoid(),
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
+
+        b, c, _ = x.shape
+
+        weights = self.pool(x).view(b, c)
+        weights = self.gate(weights).view(b, c, 1)
+
+        return x * weights
+
+
+class ResidualBlock1d(nn.Module):
+    """
+    Conv1d -> BN -> ReLU -> Conv1d -> BN, with a (possibly
+    projected) skip connection, followed by SE attention,
+    ReLU, and optional max-pooling.
+
+    Residual connections let gradients flow through the deeper
+    stack without the vanishing-gradient issues that made the
+    original 3-block plain CNN hard to extend.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        pool: bool = True,
+    ):
+        super().__init__()
+
+        padding = kernel_size // 2
+
+        self.conv1 = nn.Conv1d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            padding=padding,
+        )
+        self.bn1 = nn.BatchNorm1d(out_channels)
+
+        self.conv2 = nn.Conv1d(
+            out_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            padding=padding,
+        )
+        self.bn2 = nn.BatchNorm1d(out_channels)
+
+        self.se = SEBlock1d(out_channels)
+
+        if in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size=1),
+                nn.BatchNorm1d(out_channels),
+            )
+        else:
+            self.shortcut = nn.Identity()
+
+        self.relu = nn.ReLU(inplace=True)
+
+        self.pool = (
+            nn.MaxPool1d(kernel_size=2, stride=2)
+            if pool
+            else nn.Identity()
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
+
+        identity = self.shortcut(x)
+
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+
+        out = self.se(out)
+
+        out = self.relu(out + identity)
+
+        out = self.pool(out)
+
+        return out
+
+
+class BaselineCNN(nn.Module):
+    """
+    Residual 1D CNN for automatic modulation classification.
+
+    Architecture:
+
+        Input
+        (2, 1024)
+           â†“
+        ResidualBlock(2 â†’ 64,  k=7, pool)   -> (B,  64, 512)
+           â†“
+        ResidualBlock(64 â†’ 128, k=5, pool)  -> (B, 128, 256)
+           â†“
+        ResidualBlock(128 â†’ 256, k=3, pool) -> (B, 256, 128)
+           â†“
+        ResidualBlock(256 â†’ 256, k=3, no pool) -> (B, 256, 128)
+           â†“
+        Global Avg Pool âŠ• Global Max Pool
+           â†“
+        (B, 512)
+           â†“
+        Fully Connected
+           â†“
+        24 class logits
+
+    Each ResidualBlock includes SE (squeeze-excite) channel
+    attention. The final block keeps full temporal resolution
+    (no pooling) before global pooling, instead of collapsing
+    to a single timestep right after block 3 as in the
+    original architecture.
+    """
+
+    def __init__(
+        self,
+        num_classes: int = 24,
+    ):
+        super().__init__()
+
+        self.features = nn.Sequential(
+            ResidualBlock1d(2, 64, kernel_size=7, pool=True),
+            ResidualBlock1d(64, 128, kernel_size=5, pool=True),
+            ResidualBlock1d(128, 256, kernel_size=3, pool=True),
+            ResidualBlock1d(256, 256, kernel_size=3, pool=False),
+        )
+
+        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.global_max_pool = nn.AdaptiveMaxPool1d(1)
+
+        # ----------------------------------------------------
+        # Classifier
+        #
+        # Input is 512 = 256 (avg-pooled) + 256 (max-pooled).
+        # ----------------------------------------------------
+
+        self.classifier = nn.Sequential(
+
+            nn.Flatten(),
+
+            nn.Linear(
+                512,
+                256,
+            ),
+
+            nn.ReLU(),
+
+            nn.Dropout(
+                p=0.4
+            ),
+
+            nn.Linear(
+                256,
+                128,
+            ),
+
+            nn.ReLU(),
+
+            nn.Dropout(
+                p=0.3
+            ),
+
+            nn.Linear(
+                128,
+                num_classes,
+            ),
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
+
+        x = self.features(x)
+
+        avg_pooled = self.global_avg_pool(x)
+        max_pooled = self.global_max_pool(x)
+
+        x = torch.cat(
+            [avg_pooled, max_pooled],
+            dim=1,
+        )
+
+        x = self.classifier(x)
+
+        return x
+
+
+# ============================================================
+# Manual model test
+# ============================================================
+
+if __name__ == "__main__":
+
+    print("=" * 70)
+    print("AMCShield Baseline CNN Test")
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # Create model
+    # --------------------------------------------------------
+
+    model = BaselineCNN(
+        num_classes=24
+    )
+
+    print()
+    print("Model created successfully.")
+
+    # --------------------------------------------------------
+    # Create dummy RadioML input
+    # --------------------------------------------------------
+
+    x = torch.randn(
+        4,
+        2,
+        1024,
+    )
+
+    print()
+    print(
+        f"Input shape  : {tuple(x.shape)}"
+    )
+
+    # --------------------------------------------------------
+    # Forward pass
+    # --------------------------------------------------------
+
+    with torch.no_grad():
+
+        output = model(x)
+
+    print(
+        f"Output shape : {tuple(output.shape)}"
+    )
+
+    # --------------------------------------------------------
+    # Verification
+    # --------------------------------------------------------
+
+    assert output.shape == (
+        4,
+        24,
+    )
+
+    print()
+    print("âœ“ Input shape verified")
+    print("âœ“ Output shape verified")
+    print("âœ“ 24 modulation classes verified")
+
+    # --------------------------------------------------------
+    # Parameter count
+    # --------------------------------------------------------
+
+    parameters = sum(
+        p.numel()
+        for p in model.parameters()
+    )
+
+    trainable_parameters = sum(
+        p.numel()
+        for p in model.parameters()
+        if p.requires_grad
+    )
+
+    print()
+    print(
+        f"Total parameters     : {parameters:,}"
+    )
+
+    print(
+        f"Trainable parameters : {trainable_parameters:,}"
+    )
+
+    print()
+    print("=" * 70)
+    print("BASELINE CNN TEST PASSED")
+    print("=" * 70)
+
+===========================================================================
+FILE: src\model_robust.py
+===========================================================================
+"""
+model_robust.py
+Owner: Mayank Ingole [EN24CS3T10017]
+Phase: 4 (Week 5-6)
+
+Responsibility:
+    Same base architecture as BaselineCNN, trained via PGD-adversarial
+    training.
+
+CONSTRAINT:
+    Adversarial training uses PGD ONLY.
+
+Dataset:
+    RadioML 2018.01A
+    24 classes
+    Input shape: (2, 1024)
+"""
+
+from src.model_baseline import BaselineCNN
+
+
+class RobustCNN(BaselineCNN):
+    """
+    Robust CNN for RadioML 2018.01A.
+
+    Same architecture as BaselineCNN.
+    Robustness comes from PGD adversarial training.
+    """
+
+    def __init__(self, num_classes: int = 24):
+        super().__init__(num_classes=num_classes)
+
+===========================================================================
+FILE: src\data_loader.py
+===========================================================================
+"""
+data_loader.py
+Owner: Mayank Ingole [EN24CS3T10017]
+Phase: 1
+
+Responsibility:
+    Lazy loading of the RadioML 2018.01A HDF5 dataset.
+
+Dataset format:
+    X: (N, 1024, 2)
+    Y: (N, 24)
+    Z: (N, 1)
+
+PyTorch format:
+    signal: (2, 1024)
+    label : scalar class index
+    snr   : scalar SNR value
+
+Important:
+    The complete 21+ GB HDF5 dataset is never loaded into RAM.
+    Samples are read only when requested by the DataLoader.
+"""
+
+from pathlib import Path
+from typing import Tuple
+
+import h5py
+import numpy as np
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+
+# ============================================================
+# Configuration
+# ============================================================
+
+DEFAULT_DATASET_PATH = (
+    "data/raw/GOLD_XYZ_OSC.0001_1024.hdf5"
+)
+
+DEFAULT_PROCESSED_DIR = "data/processed"
+
+DEFAULT_BATCH_SIZE = 128
+
+
+# ============================================================
+# RadioML Dataset
+# ============================================================
+
+class RadioMLDataset(Dataset):
+    """
+    Lazy PyTorch Dataset for RadioML 2018.01A.
+
+    Only the requested samples are read from the HDF5 file.
+    """
+
+    def __init__(
+        self,
+        hdf5_path: str = DEFAULT_DATASET_PATH,
+        indices_path: str | None = None,
+    ):
+        self.hdf5_path = Path(hdf5_path)
+
+        if not self.hdf5_path.exists():
+            raise FileNotFoundError(
+                f"HDF5 dataset not found: {self.hdf5_path}"
+            )
+
+        # ----------------------------------------------------
+        # Load only the split indices.
+        # ----------------------------------------------------
+
+        if indices_path is None:
+            self.indices = np.arange(
+                self._get_dataset_length(),
+                dtype=np.int32,
+            )
+        else:
+            self.indices_path = Path(indices_path)
+
+            if not self.indices_path.exists():
+                raise FileNotFoundError(
+                    f"Index file not found: {self.indices_path}"
+                )
+
+            self.indices = np.load(
+                self.indices_path
+            ).astype(np.int32)
+
+        # ----------------------------------------------------
+        # HDF5 file handle.
+        #
+        # It is opened lazily when the first sample is
+        # requested. This is important for PyTorch workers.
+        # ----------------------------------------------------
+
+        self._h5_file = None
+
+    # --------------------------------------------------------
+    # HDF5 handling
+    # --------------------------------------------------------
+
+    def _get_dataset_length(self) -> int:
+        """Read the number of samples without loading X."""
+
+        with h5py.File(
+            self.hdf5_path,
+            "r",
+        ) as h5_file:
+            return h5_file["X"].shape[0]
+
+    def _open_hdf5(self):
+        """Open the HDF5 file lazily."""
+
+        if self._h5_file is None:
+            self._h5_file = h5py.File(
+                self.hdf5_path,
+                "r",
+            )
+
+    # --------------------------------------------------------
+    # Dataset interface
+    # --------------------------------------------------------
+
+    def __len__(self) -> int:
+        return len(self.indices)
+
+    def __getitem__(
+        self,
+        index: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
+        self._open_hdf5()
+
+        # Map DataLoader index to original HDF5 index.
+        real_index = int(
+            self.indices[index]
+        )
+
+        # ----------------------------------------------------
+        # Read one signal.
+        #
+        # HDF5:
+        #     (1024, 2)
+        #
+        # PyTorch:
+        #     (2, 1024)
+        # ----------------------------------------------------
+
+        signal = self._h5_file["X"][real_index]
+
+        signal = np.asarray(
+            signal,
+            dtype=np.float32,
+        )
+
+        # (1024, 2) -> (2, 1024)
+        signal = signal.T.copy()
+
+        # ----------------------------------------------------
+        # Per-sample unit-energy normalization.
+        #
+        # This mirrors preprocess.normalize() and is applied
+        # here (rather than to the raw HDF5 file) so the
+        # 21+ GB dataset on disk never has to be rewritten.
+        #
+        # Without this, signal amplitude varies with transmit
+        # power/SNR and the fixed L-inf epsilon used for FGSM/
+        # PGD/MIM is not a consistent *relative* perturbation
+        # budget across samples.
+        # ----------------------------------------------------
+
+        energy = np.sqrt(
+            np.sum(signal ** 2)
+        )
+
+        signal = signal / max(
+            float(energy),
+            1e-12,
+        )
+
+        signal = torch.from_numpy(
+            signal
+        )
+
+        # ----------------------------------------------------
+        # Read one-hot modulation label.
+        #
+        # Y:
+        #     (24,)
+        #
+        # Convert to:
+        #     class index 0-23
+        # ----------------------------------------------------
+
+        label_one_hot = self._h5_file["Y"][real_index]
+
+        label = int(
+            np.argmax(label_one_hot)
+        )
+
+        label = torch.tensor(
+            label,
+            dtype=torch.long,
+        )
+
+        # ----------------------------------------------------
+        # Read SNR.
+        # ----------------------------------------------------
+
+        snr = int(
+            self._h5_file["Z"][real_index][0]
+        )
+
+        snr = torch.tensor(
+            snr,
+            dtype=torch.int16,
+        )
+
+        return signal, label, snr
+
+    # --------------------------------------------------------
+    # Cleanup
+    # --------------------------------------------------------
+
+    def close(self):
+        """Close the HDF5 file."""
+
+        if self._h5_file is not None:
+            self._h5_file.close()
+            self._h5_file = None
+
+    def __del__(self):
+        self.close()
+
+
+# ============================================================
+# DataLoader creation
+# ============================================================
+
+class _FixedOrderSampler(torch.utils.data.Sampler):
+    """Yields the SAME pseudo-random permutation on every pass."""
+
+    def __init__(self, n: int, seed: int = 0):
+        self.order = torch.randperm(
+            n, generator=torch.Generator().manual_seed(seed)
+        ).tolist()
+
+    def __iter__(self):
+        return iter(self.order)
+
+    def __len__(self):
+        return len(self.order)
+
+
+def create_dataloaders(
+    hdf5_path: str = DEFAULT_DATASET_PATH,
+    processed_dir: str = DEFAULT_PROCESSED_DIR,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    num_workers: int = 0,
+):
+    """
+    Create train, validation and test DataLoaders.
+
+    Returns:
+        train_loader
+        val_loader
+        test_loader
+    """
+
+    processed_path = Path(processed_dir)
+
+    train_dataset = RadioMLDataset(
+        hdf5_path=hdf5_path,
+        indices_path=str(
+            processed_path / "train_indices.npy"
+        ),
+    )
+
+    val_dataset = RadioMLDataset(
+        hdf5_path=hdf5_path,
+        indices_path=str(
+            processed_path / "val_indices.npy"
+        ),
+    )
+
+    test_dataset = RadioMLDataset(
+        hdf5_path=hdf5_path,
+        indices_path=str(
+            processed_path / "test_indices.npy"
+        ),
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+
+    # The test indices are stored in dataset order, and RadioML 2018.01A is
+    # stored class by class, so an in-order test loader yields ONE modulation
+    # class at a time. Scripts that take "the first N samples per SNR"
+    # (run_*_snr.py, run_baseline_attacks.py, ...) would then evaluate class 0
+    # only. Use a fixed pseudo-random order instead: random across classes,
+    # but identical on every pass and in every script, so the baseline and
+    # robust models are always compared on exactly the same samples.
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        sampler=_FixedOrderSampler(len(test_dataset), seed=0),
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+
+    return (
+        train_loader,
+        val_loader,
+        test_loader,
+    )
+
+
+# ============================================================
+# Manual test
+# ============================================================
+
+if __name__ == "__main__":
+
+    print("=" * 70)
+    print("RadioML 2018.01A DataLoader Test")
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # Create datasets
+    # --------------------------------------------------------
+
+    train_dataset = RadioMLDataset(
+        indices_path=(
+            "data/processed/train_indices.npy"
+        )
+    )
+
+    val_dataset = RadioMLDataset(
+        indices_path=(
+            "data/processed/val_indices.npy"
+        )
+    )
+
+    test_dataset = RadioMLDataset(
+        indices_path=(
+            "data/processed/test_indices.npy"
+        )
+    )
+
+    print()
+    print("Dataset sizes:")
+    print(
+        f"Train      : {len(train_dataset):,}"
+    )
+    print(
+        f"Validation : {len(val_dataset):,}"
+    )
+    print(
+        f"Test       : {len(test_dataset):,}"
+    )
+
+    # --------------------------------------------------------
+    # Read one sample
+    # --------------------------------------------------------
+
+    print()
+    print("Reading one training sample...")
+
+    signal, label, snr = train_dataset[0]
+
+    print(
+        f"Signal shape : {tuple(signal.shape)}"
+    )
+    print(
+        f"Signal dtype : {signal.dtype}"
+    )
+    print(
+        f"Label        : {label.item()}"
+    )
+    print(
+        f"SNR          : {snr.item()} dB"
+    )
+
+    # --------------------------------------------------------
+    # Create DataLoaders
+    # --------------------------------------------------------
+
+    print()
+    print("Creating DataLoaders...")
+
+    train_loader, val_loader, test_loader = (
+        create_dataloaders(
+            batch_size=4,
+            num_workers=0,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Read one batch
+    # --------------------------------------------------------
+
+    print()
+    print("Reading one training batch...")
+
+    signals, labels, snrs = next(
+        iter(train_loader)
+    )
+
+    print(
+        f"Batch signal shape : {tuple(signals.shape)}"
+    )
+    print(
+        f"Batch label shape  : {tuple(labels.shape)}"
+    )
+    print(
+        f"Batch SNR shape    : {tuple(snrs.shape)}"
+    )
+
+    # --------------------------------------------------------
+    # Final checks
+    # --------------------------------------------------------
+
+    assert signals.shape == (
+        4,
+        2,
+        1024,
+    )
+
+    assert labels.shape == (4,)
+
+    assert snrs.shape == (4,)
+
+    assert signals.dtype == torch.float32
+
+    assert labels.dtype == torch.long
+
+    print()
+    print("=" * 70)
+    print("DATALOADER TEST PASSED")
+    print("=" * 70)
+
+===========================================================================
+FILE: configs\config.yaml
+===========================================================================
+# ============================================================
+# AMCShield Configuration
+# RadioML 2018.01A
+# Central configuration for dataset, training, attacks,
+# adversarial training, and evaluation.
+# ============================================================
+
+seed: 42
+
+
+# ============================================================
+# Dataset
+# ============================================================
+
+dataset:
+  name: "RadioML2018.01A"
+
+  # Main HDF5 dataset
+  path: "data/raw/GOLD_XYZ_OSC.0001_1024.hdf5"
+
+  # Corrected modulation class mapping
+  classes_path: "data/raw/classes-fixed.json"
+
+  # Number of modulation classes
+  num_classes: 24
+
+  # RadioML 2018.01A signal format
+  # Raw format:    (1024, 2)
+  # PyTorch format: (2, 1024)
+  input_channels: 2
+  signal_length: 1024
+
+  # SNR values:
+  # -20, -18, -16, ..., 28, 30 dB
+  snr_range: [-20, 30]
+  snr_step: 2
+
+
+# ============================================================
+# Dataset Split
+# ============================================================
+
+# Stratified jointly by:
+#   1. Modulation class
+#   2. SNR
+#
+# Total = 100%
+
+train_size: 0.70
+val_size: 0.15
+test_size: 0.15
+
+
+# ============================================================
+# Training
+# ============================================================
+
+# Number of samples processed in one batch
+batch_size: 128
+
+# Maximum number of training epochs.
+# Early stopping may terminate training earlier.
+epochs: 60
+
+# Initial learning rate
+learning_rate: 0.001
+
+# AdamW decoupled weight decay
+weight_decay: 0.0001
+
+# CrossEntropyLoss label smoothing.
+# Helps reduce over-confident predictions, especially
+# for ambiguous modulation classes and low-SNR samples.
+label_smoothing: 0.1
+
+# Stop training if validation accuracy does not improve
+# for this many consecutive epochs.
+early_stopping_patience: 7
+
+
+# ============================================================
+# Adversarial Training
+# ============================================================
+
+# Fraction of each training batch that is adversarially
+# perturbed using PGD.
+#
+# 0.5 = 50% clean + 50% adversarial samples
+#
+# This allows the robust model to learn adversarial
+# robustness while maintaining clean-data performance.
+adv_train_ratio: 0.5
+
+
+# ============================================================
+# Attack Parameters
+# ============================================================
+
+# Perturbation budget for different attacks
+epsilon:
+  fgsm: 0.02
+  pgd: 0.02
+  mim: 0.02
+
+# Number of iterative attack steps
+pgd_steps: 10
+mim_steps: 10
+
+
+# ============================================================
+# C&W Attack Evaluation
+# ============================================================
+
+# C&W is computationally expensive.
+# Evaluate only a fixed number of samples per SNR bucket.
+cw_eval_subset_size: 300
+
+
+# ============================================================
+# Black-Box Surrogate Attack
+# ============================================================
+
+# Number of queries made to the baseline model
+# to obtain labels for surrogate-model training.
+surrogate_query_budget: 50000
+
+===========================================================================
+FILE: start_training.bat
+===========================================================================
+@echo off
+
+cd /d "D:\MediCaps University\7 SEM\Project 1\AMCShield"
+
+call ".venv\Scripts\activate.bat"
+
+rem --- Refuse to train on CPU (would take weeks) -------------------
+python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available() else 1)"
+if errorlevel 1 (
+    echo.
+    echo ERROR: PyTorch cannot see your GPU ^(CUDA not available^).
+    echo Training was NOT started. See instructions to install the CUDA build of PyTorch.
+    echo.
+    pause
+    exit /b 1
+)
+
+rem --- Auto resume --------------------------------------------------
+rem First run  : no resume file exists, so training starts at epoch 1.
+rem After crash: just run this file again. It continues from the exact
+rem              epoch and batch saved in checkpoints\baseline_resume.pt.
+rem To force a brand-new run from epoch 1, delete
+rem checkpoints\baseline_resume.pt  (do NOT set AMC_FRESH here).
+
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+python -m src.train_baseline >> "training.log" 2>&1
+
+===========================================================================
+FILE: src\train_robust.py.bak
+===========================================================================
+"""
+train_robust.py
+
+AMCShield - Robust CNN Training Runner
+
+Purpose:
+    Train RobustCNN using PGD adversarial training.
+
+Dataset:
+    RadioML 2018.01A
+
+Input:
+    (B, 2, 1024)
+
+Classes:
+    24
+
+Training:
+    PGD ONLY
+
+Output:
+    checkpoints/robust_best.pt
+"""
+
+import torch
+
+from src.data_loader import create_dataloaders
+from src.model_robust import RobustCNN
+from src.train import train_model, load_config
+import argparse
+from src.attacks import pgd_attack
+
+
+def main():
+
+    print("=" * 70)
+    print("AMCShield Robust CNN Training")
+    print("=" * 70)
+
+    # ------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------
+
+    config = load_config()
+
+    # ------------------------------------------------------------
+    # Optional command-line overrides. Every option defaults to
+    # "no change", and they only modify THIS run's in-memory config,
+    # never config.yaml, so the evaluation scripts keep using the
+    # shared values (e.g. pgd_steps: 10 for attacking).
+    # ------------------------------------------------------------
+    parser = argparse.ArgumentParser(
+        description="PGD adversarial training of RobustCNN"
+    )
+    parser.add_argument(
+        "--init-from", default=None,
+        help="start from this checkpoint (adversarial fine-tuning), "
+             "e.g. checkpoints/baseline_best.pt",
+    )
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument(
+        "--lr", type=float, default=None,
+        help="learning rate (use about 1e-4 when fine-tuning)",
+    )
+    parser.add_argument(
+        "--pgd-steps", type=int, default=None,
+        help="PGD steps used DURING TRAINING only",
+    )
+    parser.add_argument(
+        "--max-train-batches", type=int, default=None,
+        help="cap the number of training batches per epoch",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="print the resolved settings and exit without training",
+    )
+    args = parser.parse_args()
+
+    if args.epochs is not None:
+        config["epochs"] = args.epochs
+    if args.lr is not None:
+        config["learning_rate"] = args.lr
+
+    batch_size = config.get("batch_size", 128)
+    num_classes = config["dataset"].get("num_classes", 24)
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+    print(f"Dataset      : {config['dataset']['name']}")
+    print(f"Classes      : {num_classes}")
+    print(f"Batch size   : {batch_size}")
+    print(f"Epochs       : {config.get('epochs', 30)}")
+    print(f"Learning rate: {config.get('learning_rate', 0.001)}")
+    print(f"Device       : {device}")
+
+    # ------------------------------------------------------------
+    # PGD configuration
+    # ------------------------------------------------------------
+
+    attack_config = config.get("attack", {})
+
+    epsilon_config = attack_config.get(
+        "epsilon",
+        config.get("epsilon", 0.02)
+    )
+
+    # ------------------------------------------------------------
+    # IMPORTANT:
+    # The configuration may contain:
+    #
+    # epsilon:
+    #   fgsm: 0.02
+    #   pgd: 0.02
+    #   mim: 0.02
+    #
+    # For robust training we MUST use PGD epsilon only.
+    # ------------------------------------------------------------
+
+    if isinstance(epsilon_config, dict):
+
+        pgd_epsilon = float(
+            epsilon_config.get("pgd", 0.02)
+        )
+
+    else:
+
+        pgd_epsilon = float(
+            epsilon_config
+        )
+
+    pgd_steps = attack_config.get(
+        "pgd_steps",
+        config.get("pgd_steps", 10)
+    )
+
+    pgd_steps = int(pgd_steps)
+    if args.pgd_steps is not None:
+        pgd_steps = args.pgd_steps
+
+    print(f"PGD epsilon  : {pgd_epsilon}")
+    print(f"PGD steps    : {pgd_steps}")
+    print(
+        f"Init from    : "
+        f"{args.init_from or 'random initialisation (from scratch)'}"
+    )
+    print(f"Batches/epoch: {args.max_train_batches or 'all'}")
+
+    if args.dry_run:
+        print("\nDry run: nothing was trained. These are the settings "
+              "that would be used.")
+        return
+
+    # ------------------------------------------------------------
+    # DataLoaders
+    # ------------------------------------------------------------
+
+    print("\nCreating DataLoaders...")
+
+    train_loader, val_loader, test_loader = create_dataloaders(
+        batch_size=batch_size,
+        num_workers=0,
+    )
+
+    print(f"Train batches : {len(train_loader):,}")
+    print(f"Val batches   : {len(val_loader):,}")
+    print(f"Test batches  : {len(test_loader):,}")
+
+    # ------------------------------------------------------------
+    # Model
+    # ------------------------------------------------------------
+
+    print("\nCreating RobustCNN...")
+
+    model = RobustCNN(
+        num_classes=num_classes
+    )
+
+    if args.init_from:
+        init_ckpt = torch.load(
+            args.init_from, map_location="cpu", weights_only=False
+        )
+        init_state = (
+            init_ckpt.get("model_state_dict")
+            or init_ckpt.get("state_dict")
+            or init_ckpt
+        )
+        model.load_state_dict(init_state)
+        print(f"Initialised from: {args.init_from}")
+
+    total_params = sum(
+        p.numel()
+        for p in model.parameters()
+    )
+
+    trainable_params = sum(
+        p.numel()
+        for p in model.parameters()
+        if p.requires_grad
+    )
+
+    print(
+        f"Total parameters     : "
+        f"{total_params:,}"
+    )
+
+    print(
+        f"Trainable parameters : "
+        f"{trainable_params:,}"
+    )
+
+    # ------------------------------------------------------------
+    # PGD adversarial training hook
+    # ------------------------------------------------------------
+
+    def adversarial_fn(model, signals, labels):
+
+        return pgd_attack(
+            model=model,
+            x=signals,
+            y=labels,
+            epsilon=pgd_epsilon,
+            steps=pgd_steps,
+        )
+
+    # ------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------
+
+    checkpoint_path = (
+        "checkpoints/robust_best.pt"
+    )
+
+    print("\nStarting PGD adversarial training...")
+    print(
+        f"Checkpoint: {checkpoint_path}"
+    )
+
+    print("=" * 70)
+
+    model = train_model(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        config=config,
+        adversarial_fn=adversarial_fn,
+        checkpoint_path=checkpoint_path,
+        max_train_batches=args.max_train_batches,
+    )
+
+    # ------------------------------------------------------------
+    # Complete
+    # ------------------------------------------------------------
+
+    print("\n" + "=" * 70)
+    print("ROBUST TRAINING COMPLETED")
+    print("=" * 70)
+
+    print(
+        f"Best checkpoint: "
+        f"{checkpoint_path}"
+    )
+
+
+if __name__ == "__main__":
+    main()
+
+===========================================================================
+FILE: training.log (last 200 lines)
+===========================================================================
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13943/13978 [1:28:01<00:18,  1.84batch/s, acc=63.52%, batch_acc=64.8%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13944/13978 [1:28:01<00:16,  2.04batch/s, acc=63.52%, batch_acc=64.8%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13944/13978 [1:28:01<00:16,  2.04batch/s, acc=63.52%, batch_acc=63.3%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13945/13978 [1:28:01<00:15,  2.09batch/s, acc=63.52%, batch_acc=63.3%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13945/13978 [1:28:02<00:15,  2.09batch/s, acc=63.52%, batch_acc=59.4%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13946/13978 [1:28:02<00:15,  2.05batch/s, acc=63.52%, batch_acc=59.4%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13946/13978 [1:28:02<00:15,  2.05batch/s, acc=63.52%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13947/13978 [1:28:02<00:14,  2.15batch/s, acc=63.52%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13947/13978 [1:28:02<00:14,  2.15batch/s, acc=63.52%, batch_acc=63.3%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13948/13978 [1:28:02<00:13,  2.23batch/s, acc=63.52%, batch_acc=63.3%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13948/13978 [1:28:03<00:13,  2.23batch/s, acc=63.52%, batch_acc=70.3%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13949/13978 [1:28:03<00:13,  2.17batch/s, acc=63.52%, batch_acc=70.3%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13949/13978 [1:28:03<00:13,  2.17batch/s, acc=63.52%, batch_acc=64.8%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13950/13978 [1:28:03<00:12,  2.29batch/s, acc=63.52%, batch_acc=64.8%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13950/13978 [1:28:04<00:12,  2.29batch/s, acc=63.52%, batch_acc=59.4%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13951/13978 [1:28:04<00:11,  2.29batch/s, acc=63.52%, batch_acc=59.4%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13951/13978 [1:28:04<00:11,  2.29batch/s, acc=63.52%, batch_acc=60.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13952/13978 [1:28:04<00:11,  2.33batch/s, acc=63.52%, batch_acc=60.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13952/13978 [1:28:05<00:11,  2.33batch/s, acc=63.52%, batch_acc=65.6%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13953/13978 [1:28:05<00:10,  2.41batch/s, acc=63.52%, batch_acc=65.6%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13953/13978 [1:28:05<00:10,  2.41batch/s, acc=63.52%, batch_acc=59.4%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13954/13978 [1:28:05<00:09,  2.48batch/s, acc=63.52%, batch_acc=59.4%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13954/13978 [1:28:05<00:09,  2.48batch/s, acc=63.52%, batch_acc=68.0%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13955/13978 [1:28:05<00:09,  2.44batch/s, acc=63.52%, batch_acc=68.0%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13955/13978 [1:28:06<00:09,  2.44batch/s, acc=63.52%, batch_acc=59.4%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13956/13978 [1:28:06<00:08,  2.54batch/s, acc=63.52%, batch_acc=59.4%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13956/13978 [1:28:06<00:08,  2.54batch/s, acc=63.52%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13957/13978 [1:28:06<00:08,  2.51batch/s, acc=63.52%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13957/13978 [1:28:07<00:08,  2.51batch/s, acc=63.52%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13958/13978 [1:28:07<00:08,  2.32batch/s, acc=63.52%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13958/13978 [1:28:07<00:08,  2.32batch/s, acc=63.52%, batch_acc=58.6%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13959/13978 [1:28:07<00:08,  2.16batch/s, acc=63.52%, batch_acc=58.6%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13959/13978 [1:28:08<00:08,  2.16batch/s, acc=63.52%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13960/13978 [1:28:08<00:09,  2.00batch/s, acc=63.52%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13960/13978 [1:28:08<00:09,  2.00batch/s, acc=63.51%, batch_acc=60.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13961/13978 [1:28:08<00:08,  2.12batch/s, acc=63.51%, batch_acc=60.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13961/13978 [1:28:09<00:08,  2.12batch/s, acc=63.52%, batch_acc=68.0%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13962/13978 [1:28:09<00:07,  2.24batch/s, acc=63.52%, batch_acc=68.0%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13962/13978 [1:28:09<00:07,  2.24batch/s, acc=63.52%, batch_acc=60.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13963/13978 [1:28:09<00:07,  2.07batch/s, acc=63.52%, batch_acc=60.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13963/13978 [1:28:09<00:07,  2.07batch/s, acc=63.51%, batch_acc=58.6%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13964/13978 [1:28:09<00:06,  2.20batch/s, acc=63.51%, batch_acc=58.6%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13964/13978 [1:28:10<00:06,  2.20batch/s, acc=63.52%, batch_acc=71.1%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13965/13978 [1:28:10<00:05,  2.29batch/s, acc=63.52%, batch_acc=71.1%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13965/13978 [1:28:10<00:05,  2.29batch/s, acc=63.52%, batch_acc=60.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13966/13978 [1:28:10<00:05,  2.25batch/s, acc=63.52%, batch_acc=60.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13966/13978 [1:28:11<00:05,  2.25batch/s, acc=63.51%, batch_acc=61.7%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13967/13978 [1:28:11<00:04,  2.31batch/s, acc=63.51%, batch_acc=61.7%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13967/13978 [1:28:11<00:04,  2.31batch/s, acc=63.51%, batch_acc=64.8%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13968/13978 [1:28:11<00:04,  2.28batch/s, acc=63.51%, batch_acc=64.8%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13968/13978 [1:28:12<00:04,  2.28batch/s, acc=63.51%, batch_acc=59.4%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13969/13978 [1:28:12<00:03,  2.33batch/s, acc=63.51%, batch_acc=59.4%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13969/13978 [1:28:12<00:03,  2.33batch/s, acc=63.51%, batch_acc=58.6%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13970/13978 [1:28:12<00:03,  2.39batch/s, acc=63.51%, batch_acc=58.6%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13970/13978 [1:28:12<00:03,  2.39batch/s, acc=63.51%, batch_acc=57.0%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13971/13978 [1:28:12<00:02,  2.36batch/s, acc=63.51%, batch_acc=57.0%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13971/13978 [1:28:13<00:02,  2.36batch/s, acc=63.51%, batch_acc=60.9%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13972/13978 [1:28:13<00:02,  2.29batch/s, acc=63.51%, batch_acc=60.9%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13972/13978 [1:28:13<00:02,  2.29batch/s, acc=63.51%, batch_acc=71.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13973/13978 [1:28:13<00:02,  2.38batch/s, acc=63.51%, batch_acc=71.9%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13973/13978 [1:28:14<00:02,  2.38batch/s, acc=63.51%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13974/13978 [1:28:14<00:01,  2.22batch/s, acc=63.51%, batch_acc=62.5%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13974/13978 [1:28:14<00:01,  2.22batch/s, acc=63.51%, batch_acc=63.3%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13975/13978 [1:28:14<00:01,  2.31batch/s, acc=63.51%, batch_acc=63.3%, loss=1.5421][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13975/13978 [1:28:15<00:01,  2.31batch/s, acc=63.51%, batch_acc=56.2%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13976/13978 [1:28:15<00:00,  2.39batch/s, acc=63.51%, batch_acc=56.2%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13976/13978 [1:28:15<00:00,  2.39batch/s, acc=63.51%, batch_acc=58.6%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13977/13978 [1:28:15<00:00,  2.21batch/s, acc=63.51%, batch_acc=58.6%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‰| 13977/13978 [1:28:16<00:00,  2.21batch/s, acc=63.51%, batch_acc=61.8%, loss=1.5422][A
+
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆ| 13978/13978 [1:28:16<00:00,  2.14batch/s, acc=63.51%, batch_acc=61.8%, loss=1.5422][A
+Epoch 58/60: 100%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆ| 13978/13978 [1:28:16<00:00,  2.07batch/s, acc=63.51%, batch_acc=61.8%, loss=1.5422]
+
+Overall Training:  97%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‹| 58/60 [1:48:05<3:36:11, 6485.76s/epoch]
+Overall Training:  97%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‹| 58/60 [1:48:05<3:36:11, 6485.76s/epoch, epoch=58/60, lr=0.000031, train_acc=63.51%, val_acc=62.70%]
+Overall Training:  97%|â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‹| 58/60 [1:48:05<3:36:11, 6485.91s/epoch, epoch=58/60, lr=0.000031, train_acc=63.51%, val_acc=62.70%]
+
+Epoch [58/60] | Train Loss: 1.5422 | Train Acc: 63.51% | Val Loss: 1.5338 | Val Acc: 62.70%
+  No improvement for 7 epoch(s) (patience=7) | LR: 0.000031
+
+Early stopping triggered after 58 epochs (no val improvement for 7 epochs).
+
+======================================================================
+TRAINING COMPLETED
+======================================================================
+Best validation accuracy: 62.75%
+Best checkpoint: checkpoints\baseline_best.pt
+
+======================================================================
+BASELINE TRAINING COMPLETED
+======================================================================
+Best checkpoint: checkpoints/baseline_best.pt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_baseline.py", line 25, in <module>
+    from src.train import train_model, load_config
+  File "D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train.py", line 51, in <module>
+    from src import utils
+  File "D:\MediCaps University\7 SEM\Project 1\AMCShield\src\utils.py", line 16, in <module>
+    import seaborn as sns
+  File "D:\MediCaps University\7 SEM\Project 1\AMCShield\.venv\Lib\site-packages\seaborn\__init__.py", line 5, in <module>
+    from .relational import *  # noqa: F401,F403
+    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\MediCaps University\7 SEM\Project 1\AMCShield\.venv\Lib\site-packages\seaborn\relational.py", line 21, in <module>
+    from ._statistics import EstimateAggregator, WeightedAggregator
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1138, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 1078, in _find_spec
+  File "<frozen importlib._bootstrap_external>", line 1507, in find_spec
+  File "<frozen importlib._bootstrap_external>", line 1479, in _get_spec
+  File "<frozen importlib._bootstrap_external>", line 1648, in find_spec
+  File "<frozen importlib._bootstrap_external>", line 161, in _path_isfile
+  File "<frozen importlib._bootstrap_external>", line 153, in _path_is_mode_type
+  File "<frozen importlib._bootstrap_external>", line 147, in _path_stat
+KeyboardInterrupt
+^C
