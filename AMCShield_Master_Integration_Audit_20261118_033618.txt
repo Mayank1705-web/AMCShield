@@ -1,0 +1,5307 @@
+AMCShield MASTER INTEGRATION AUDIT
+Generated: 11/18/2026 03:36:18
+Project: D:\MediCaps University\7 SEM\Project 1\AMCShield
+Frontend: .\frontend\AMCShield_All_In_One
+
+IMPORTANT:
+This report is an inspection snapshot.
+It does not establish that an endpoint works at runtime.
+Runtime verification must be performed separately.
+
+
+==========================================================================================
+1. PROJECT CONFIGURATION
+==========================================================================================
+
+
+FILE: .\backend\config.py
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    app_name: str = "AMCShield API"
+    app_version: str = "1.0.0"
+    environment: str = "development"
+    api_prefix: str = "/api"
+
+    frontend_dir: Path = PROJECT_ROOT / "frontend" / "AMCShield_All_In_One"
+    src_dir: Path = PROJECT_ROOT / "src"
+    results_dir: Path = PROJECT_ROOT / "results"
+    checkpoints_dir: Path = PROJECT_ROOT / "checkpoints"
+    data_dir: Path = PROJECT_ROOT / "data"
+
+    allowed_origins: str = "http://127.0.0.1:8000,http://localhost:8000"
+
+    # Session cookie security
+    session_secret: str = ""
+    session_https_only: bool = False
+    session_max_age: int = 8 * 60 * 60
+
+    # GitHub OAuth
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    github_redirect_uri: str = "http://127.0.0.1:8000/api/auth/github/callback"
+    github_scope: str = "read:user user:email"
+    github_state_max_age: int = 600
+
+    # Local administrator
+    admin_username: str = "admin"
+    admin_email: str = "admin@amcshield.local"
+    admin_password: str = ""
+
+    # Account provisioning
+    app_base_url: str = "http://127.0.0.1:8000"
+    invitation_minutes: int = 60
+    password_reset_minutes: int = 30
+
+    # Login protection
+    login_max_attempts: int = 5
+    login_lockout_minutes: int = 15
+    login_attempt_window_minutes: int = 15
+
+    # SMTP
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_from_name: str = "AMCShield"
+
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [x.strip() for x in self.allowed_origins.split(",") if x.strip()]
+
+
+settings = Settings()
+
+if not settings.session_secret:
+    raise RuntimeError(
+        "SESSION_SECRET must be configured in .env or the environment."
+    )
+
+if len(settings.session_secret) < 32:
+    raise RuntimeError(
+        "SESSION_SECRET must contain at least 32 characters."
+    )
+
+if "*" in settings.cors_origins:
+    raise RuntimeError(
+        "Wildcard CORS origins are not allowed when credentials are enabled."
+    )
+
+if settings.environment.strip().lower() == "production":
+    if not settings.session_https_only:
+        raise RuntimeError(
+            "SESSION_HTTPS_ONLY must be true in production."
+        )
+    if not settings.app_base_url.lower().startswith("https://"):
+        raise RuntimeError(
+            "APP_BASE_URL must use HTTPS in production."
+        )
+    if not settings.github_redirect_uri.lower().startswith("https://"):
+        raise RuntimeError(
+            "GITHUB_REDIRECT_URI must use HTTPS in production."
+        )
+
+if settings.github_state_max_age < 60:
+    raise RuntimeError("GITHUB_STATE_MAX_AGE must be at least 60 seconds.")
+if settings.login_max_attempts < 1:
+    raise RuntimeError("LOGIN_MAX_ATTEMPTS must be at least 1.")
+if settings.login_lockout_minutes < 1:
+    raise RuntimeError("LOGIN_LOCKOUT_MINUTES must be at least 1.")
+if settings.session_max_age < 300:
+    raise RuntimeError("SESSION_MAX_AGE must be at least 300 seconds.")
+
+
+
+FILE: .\backend\main.py
+from pathlib import Path
+import hmac
+import mimetypes
+
+from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy.orm import Session
+
+from .database.db import get_db, init_db
+from .config import settings
+from .dependencies import is_admin_session
+from .routers import (
+    admin,
+    admin_users,
+    attacks,
+    dashboard,
+    dataset,
+    evaluation,
+    invitations,
+    project,
+    reports,
+    training,
+    visualization,
+)
+from .routers.auth import router as auth_router
+
+
+# ============================================================
+# MIME TYPES
+# ============================================================
+
+mimetypes.add_type("text/css", ".css", strict=True)
+
+
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
+
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    description="FastAPI backend for the AMCShield research platform.",
+    docs_url="/docs" if settings.environment.strip().lower() != "production" else None,
+    redoc_url="/redoc" if settings.environment.strip().lower() != "production" else None,
+    openapi_url="/openapi.json" if settings.environment.strip().lower() != "production" else None,
+)
+
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+init_db()
+
+
+# ============================================================
+# SESSION MIDDLEWARE
+# ============================================================
+#
+# SessionMiddleware must be available before anything that
+# accesses request.session.
+#
+# We register it first because FastAPI/Starlette wraps later
+# middleware around earlier middleware.
+#
+# ============================================================
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    session_cookie="amcshield_session",
+    max_age=settings.session_max_age,
+    same_site="lax",
+    https_only=settings.session_https_only,
+)
+
+
+# ============================================================
+# CORS
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Content-Type",
+        "Accept",
+        "X-CSRF-Token",
+    ],
+)
+
+
+# ============================================================
+# SECURITY MIDDLEWARE
+# ============================================================
+#
+# IMPORTANT:
+#
+# This middleware does NOT access request.session.
+#
+# CSRF is handled by the dedicated /api/auth/csrf endpoint
+# and route-level validation in the authentication/security
+# layer.
+#
+# Keeping session-dependent CSRF logic out of this middleware
+# eliminates the SessionMiddleware ordering problem permanently.
+#
+# ============================================================
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    response = await call_next(request)
+
+    # --------------------------------------------------------
+    # Browser security headers
+    # --------------------------------------------------------
+
+    response.headers["X-Content-Type-Options"] = "nosniff"
+
+    response.headers["X-Frame-Options"] = "DENY"
+
+    response.headers["Referrer-Policy"] = (
+        "strict-origin-when-cross-origin"
+    )
+
+    response.headers["Permissions-Policy"] = (
+        "camera=(), "
+        "microphone=(), "
+        "geolocation=()"
+    )
+
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'; "
+        "manifest-src 'self'; "
+        "worker-src 'self' blob:;"
+    )
+
+    # --------------------------------------------------------
+    # HSTS
+    # --------------------------------------------------------
+
+    if settings.session_https_only:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+
+    # --------------------------------------------------------
+    # API cache control
+    # --------------------------------------------------------
+
+    if request.url.path.startswith(
+        f"{settings.api_prefix}/"
+    ) or request.url.path.endswith(".html") or request.url.path in {"/", "/admin"}:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+
+    return response
+
+
+# ============================================================
+# API ROUTERS
+# ============================================================
+
+for router in (
+    auth_router,
+    admin.router,
+    admin_users.router,
+    dashboard.router,
+    dataset.router,
+    training.router,
+    attacks.router,
+    evaluation.router,
+    visualization.router,
+    reports.router,
+    project.router,
+    invitations.router,
+):
+    app.include_router(
+        router,
+        prefix=settings.api_prefix,
+    )
+
+
+# ============================================================
+# HEALTH ENDPOINTS
+# ============================================================
+
+@app.get("/health", tags=["Health"])
+def health():
+    return {
+        "status": "ok",
+        "service": settings.app_name,
+        "version": settings.app_version,
+    }
+
+
+@app.get("/api/health", tags=["Health"])
+def api_health():
+    return {
+        "status": "ok",
+        "service": settings.app_name,
+        "version": settings.app_version,
+    }
+
+
+# ============================================================
+# FRONTEND
+# ============================================================
+
+FRONTEND_DIR = settings.frontend_dir.resolve()
+
+if not FRONTEND_DIR.exists():
+    raise RuntimeError(
+        f"AMCShield frontend directory not found: {FRONTEND_DIR}"
+    )
+
+if not (FRONTEND_DIR / "index.html").is_file():
+    raise RuntimeError(
+        "AMCShield frontend index.html not found: "
+        f"{FRONTEND_DIR / 'index.html'}"
+    )
+
+
+NO_STORE = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
+
+
+def _register_admin_asset(
+    url_path: str,
+    filename: str,
+    media_type: str | None,
+    is_page: bool,
+):
+    @app.get(url_path, include_in_schema=False)
+    def _serve(
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        if is_admin_session(request, db):
+            return FileResponse(
+                FRONTEND_DIR / filename,
+                media_type=media_type,
+                headers=NO_STORE,
+            )
+
+        if not is_page:
+            return Response(
+                status_code=404,
+                headers=NO_STORE,
+            )
+
+        if request.session.get("user"):
+            return RedirectResponse(
+                "/dashboard.html",
+                status_code=302,
+                headers=NO_STORE,
+            )
+
+        return RedirectResponse(
+            "/",
+            status_code=302,
+            headers=NO_STORE,
+        )
+
+
+_register_admin_asset("/admin.html", "admin.html", "text/html", True)
+_register_admin_asset("/admin", "admin.html", "text/html", True)
+_register_admin_asset("/admin.js", "admin.js", "application/javascript", False)
+_register_admin_asset("/admin.css", "admin.css", "text/css", False)
+
+
+app.mount(
+    "/",
+    StaticFiles(
+        directory=str(FRONTEND_DIR),
+        html=True,
+    ),
+    name="frontend",
+)
+
+
+# ============================================================
+# LOCAL DEVELOPMENT
+# ============================================================
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "backend.main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=True,
+    )
+
+
+==========================================================================================
+2. ACTIVE FRONTEND DIRECTORY
+==========================================================================================
+Active frontend: .\frontend\AMCShield_All_In_One
+
+Name                          Length LastWriteTime      
+----                          ------ -------------      
+about.css                       9928 01-10-2026 00:05:39
+about.html                      8133 01-10-2026 00:05:41
+about.js                        4443 01-10-2026 00:05:41
+admin.css                      11783 01-10-2026 00:05:36
+admin.html                     10660 01-10-2026 00:05:40
+admin.js                       31187 01-10-2026 00:05:38
+adversarial-attacks.css        12632 01-10-2026 00:05:38
+adversarial-attacks.html        8855 17-11-2026 13:32:41
+adversarial-attacks.js          9626 01-10-2026 00:05:42
+auth-guard.js                    454 01-10-2026 00:05:40
+dashboard.css                  17611 01-10-2026 00:05:42
+dashboard.html                 11398 17-11-2026 13:33:05
+dashboard.js                   25520 17-11-2026 23:48:00
+dashboard.js.bak               21316 01-10-2026 00:05:42
+dashboard.pre_data_fix.bak     21307 17-11-2026 21:30:39
+dataset.css                    11876 01-10-2026 00:05:39
+dataset.html                    8100 17-11-2026 13:32:47
+dataset.js                     10858 01-10-2026 00:05:37
+evaluation-results.css         12885 01-10-2026 00:05:36
+evaluation-results.html         8087 17-11-2026 13:32:53
+evaluation-results.js          11111 01-10-2026 00:05:36
+index.html                     10382 01-10-2026 00:05:40
+invite.css                      9052 01-10-2026 00:05:40
+invite.html                     5615 01-10-2026 00:05:37
+invite.js                      10691 01-10-2026 00:05:41
+login.css                      20402 01-10-2026 00:05:36
+login.js                        8610 05-10-2026 09:05:03
+metrics-reference.css          15057 17-11-2026 13:28:16
+metrics-reference.html          6809 17-11-2026 13:26:56
+metrics-reference.js           48757 17-11-2026 13:31:56
+model-training.css             11638 01-10-2026 00:05:40
+model-training.html             8071 17-11-2026 13:32:59
+model-training.js               9550 01-10-2026 00:05:39
+nav-admin.css                   1215 01-10-2026 00:05:41
+nav-admin.js                     959 01-10-2026 00:05:36
+pages.json                       724 01-10-2026 00:05:38
+README.md                       1973 01-10-2026 00:05:42
+reports.css                    10747 01-10-2026 00:05:36
+reports.html                    6659 01-10-2026 00:05:40
+reports.js                      7680 01-10-2026 00:05:37
+security.js                     2399 01-10-2026 00:05:41
+SECURITY_UPDATE_MANIFEST.json   1125 01-10-2026 00:05:41
+visualization.css               9890 01-10-2026 00:05:38
+visualization.html              6158 01-10-2026 00:05:39
+visualization.js                7937 01-10-2026 00:05:40
+
+
+
+
+
+==========================================================================================
+3. DASHBOARD FRONTEND
+==========================================================================================
+
+
+FILE: .\frontend\AMCShield_All_In_One\dashboard.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#050807" />
+  <title>AMCShield — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard.css" />
+  <script src="security.js"></script>
+  <script src="auth-guard.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <img src="assets/amcshield-logo.png" alt="AMCShield" />
+      </div>
+
+      <nav class="side-nav" aria-label="Primary navigation">
+        <a class="nav-item active" href="dashboard.html" data-page="dashboard">
+          <span class="nav-icon">⌂</span><span>Dashboard</span>
+        </a>
+        <a class="nav-item" href="dataset.html" data-page="dataset">
+          <span class="nav-icon">◫</span><span>Dataset</span>
+        </a>
+        <a class="nav-item" href="model-training.html" data-page="training">
+          <span class="nav-icon">▣</span><span>Model Training</span>
+        </a>
+        <a class="nav-item" href="adversarial-attacks.html" data-page="attacks">
+          <span class="nav-icon">⌁</span><span>Adversarial Attacks</span>
+        </a>
+        <a class="nav-item" href="evaluation-results.html" data-page="evaluation">
+          <span class="nav-icon">◒</span><span>Evaluation Results</span>
+        </a>
+        <a class="nav-item" href="visualization.html" data-page="visualization">
+          <span class="nav-icon">▥</span><span>Visualization</span>
+        </a>
+        <a class="nav-item" href="reports.html" data-page="reports">
+          <span class="nav-icon">▤</span><span>Reports</span>
+        </a>
+        <a class="nav-item" href="metrics-reference.html" data-page="metrics">
+          <span class="nav-icon">⊞</span><span>Metrics Reference</span>
+        </a>
+        <a class="nav-item" href="about.html" data-page="about">
+          <span class="nav-icon">ⓘ</span><span>About Project</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="api-status">
+          <span class="status-light"></span>
+          <div>
+            <strong id="apiStatusText">Checking API</strong>
+            <small id="apiStatusDetail">Connecting…</small>
+          </div>
+        </div>
+        <button class="side-action" id="logoutButton" type="button">↪ <span>Logout</span></button>
+      </div>
+    </aside>
+
+    <div class="mobile-overlay" id="mobileOverlay"></div>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn menu-btn" id="menuButton" aria-label="Open navigation">☰</button>
+          <div>
+            <div class="eyebrow">AMCShield / SECURE AI CONSOLE</div>
+            <h1>Dashboard</h1>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <div class="last-updated">
+            <span>LAST UPDATED</span>
+            <strong id="lastUpdated">—</strong>
+          </div>
+          <button class="refresh-btn" id="refreshButton" type="button">
+            <span id="refreshIcon">↻</span> Refresh
+          </button>
+          <div class="profile">
+            <div class="profile-avatar">A</div>
+            <div class="profile-copy">
+              <strong id="userName">User</strong>
+              <small id="userRole">AMCShield Console</small>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="hero-card">
+        <div class="hero-background"></div>
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+          <div class="hero-kicker"><span></span> AIRWAVE DEFENSE / AI RESEARCH</div>
+          <h2>Defending the<br><strong>Airwaves with AI</strong></h2>
+          <p>Monitor model performance, adversarial robustness and spectrum classification results from one secure research console.</p>
+          <div class="hero-actions">
+            <a href="evaluation-results.html" class="gold-btn">Explore Results <span>→</span></a>
+            <a href="visualization.html" class="ghost-btn">Open Visualization</a>
+          </div>
+        </div>
+        <div class="hero-signal">
+          <span class="signal-dot"></span>
+          <span>LIVE EVALUATION FEED</span>
+          <div class="signal-bars" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">SYSTEM OVERVIEW</span>
+          <h2>Mission Metrics</h2>
+        </div>
+        <span class="data-source" id="dataSource">Backend data</span>
+      </div>
+
+      <section class="metric-grid" id="metricGrid" aria-live="polite">
+        <article class="metric-card">
+          <div class="metric-icon gold">◈</div>
+          <div class="metric-label">MODULATION CLASSES</div>
+          <div class="metric-value skeleton" id="metricClasses">—</div>
+          <div class="metric-sub" id="metricClassesSub">Waiting for API</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon cyan">◫</div>
+          <div class="metric-label">TEST SAMPLES</div>
+          <div class="metric-value skeleton" id="metricSamples">—</div>
+          <div class="metric-sub" id="metricSamplesSub">Waiting for API</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon green">◎</div>
+          <div class="metric-label">SNR LEVELS</div>
+          <div class="metric-value skeleton" id="metricSnr">—</div>
+          <div class="metric-sub" id="metricSnrSub">Waiting for API</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-icon gold">⌁</div>
+          <div class="metric-label">ATTACK METHODS</div>
+          <div class="metric-value skeleton" id="metricAttacks">—</div>
+          <div class="metric-sub" id="metricAttacksSub">Waiting for API</div>
+        </article>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel performance-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">MODEL ANALYSIS</span>
+              <h2>Clean Accuracy vs SNR</h2>
+            </div>
+            <div class="legend" id="performanceLegend">
+              <span><i class="legend-dot baseline"></i>Baseline</span>
+              <span><i class="legend-dot robust"></i>Robust</span>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-loading" id="performanceLoading">Waiting for backend data…</div>
+            <svg id="performanceChart" class="chart" role="img" aria-label="Clean accuracy versus SNR"></svg>
+          </div>
+        </article>
+
+        <article class="panel attack-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">THREAT ANALYSIS</span>
+              <h2>Attack Success Rate</h2>
+            </div>
+            <select id="attackSelect" class="select" aria-label="Select attack method">
+              <option value="">All attacks</option>
+            </select>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-loading" id="attackLoading">Waiting for backend data…</div>
+            <svg id="attackChart" class="chart" role="img" aria-label="Attack success rate versus SNR"></svg>
+          </div>
+        </article>
+      </section>
+
+      <section class="lower-grid">
+        <article class="panel heatmap-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">ROBUSTNESS</span>
+              <h2>Generalization Gap</h2>
+            </div>
+            <span class="unit-label">percentage points</span>
+          </div>
+          <div class="heatmap-wrap" id="heatmapWrap">
+            <div class="chart-loading">Waiting for backend data…</div>
+          </div>
+        </article>
+
+        <article class="panel comparison-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">MODEL COMPARISON</span>
+              <h2>Evaluation Snapshot</h2>
+            </div>
+          </div>
+          <div class="comparison-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Attack</th>
+                  <th>Baseline ASR</th>
+                  <th>Robust ASR</th>
+                  <th>Gap</th>
+                </tr>
+              </thead>
+              <tbody id="comparisonBody">
+                <tr><td colspan="4" class="table-empty">Waiting for backend data…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="snr-panel panel">
+        <div class="panel-header">
+          <div>
+            <span class="section-kicker">SPECTRUM INSPECTION</span>
+            <h2>SNR Analysis</h2>
+          </div>
+          <select id="snrSelect" class="select" aria-label="Select SNR level">
+            <option value="">Select SNR</option>
+          </select>
+        </div>
+        <div class="snr-content" id="snrContent">
+          <div class="snr-empty">Select an SNR level after backend data is loaded.</div>
+        </div>
+      </section>
+
+      <section class="bottom-grid">
+        <article class="panel updates-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">ACTIVITY</span>
+              <h2>Recent Updates</h2>
+            </div>
+          </div>
+          <div id="recentUpdates" class="updates-list">
+            <div class="table-empty">Waiting for backend data…</div>
+          </div>
+        </article>
+
+        <article class="panel quick-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">OPERATIONS</span>
+              <h2>Quick Access</h2>
+            </div>
+          </div>
+          <div class="quick-links">
+            <a href="dataset.html"><span>◫</span><div><strong>Dataset</strong><small>Inspect source data</small></div><b>→</b></a>
+            <a href="model-training.html"><span>▣</span><div><strong>Model Training</strong><small>Training configuration</small></div><b>→</b></a>
+            <a href="adversarial-attacks.html"><span>⌁</span><div><strong>Adversarial Attacks</strong><small>Attack evaluation</small></div><b>→</b></a>
+            <a href="reports.html"><span>▤</span><div><strong>Reports</strong><small>Research outputs</small></div><b>→</b></a>
+          </div>
+        </article>
+      </section>
+
+      <footer>
+        <span>AMCShield © 2026</span>
+        <span>Medicaps University · Department of Computer Science & Engineering</span>
+        <span>Secure AI Research Console</span>
+      </footer>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="nav-admin.js" defer></script>
+<script src="dashboard.js"></script>
+</body>
+</html>
+
+
+
+FILE: .\frontend\AMCShield_All_In_One\dashboard.js
+
+/*
+ * AMCShield Dashboard
+ *
+ * The dashboard intentionally contains NO hardcoded experimental
+ * values. All metrics, chart points, attack results, SNR values
+ * and recent activity are expected from the backend API.
+ */
+
+const API_BASE_URL = "/api";
+
+const state = {
+  summary: null,
+  performance: null,
+  attacks: null,
+  gap: null,
+  snr: null,
+  updates: null,
+  loading: false,
+  lastUpdated: null
+};
+
+const $ = (id) => document.getElementById(id);
+
+const els = {
+  sidebar: $("sidebar"),
+  overlay: $("mobileOverlay"),
+  menu: $("menuButton"),
+  refresh: $("refreshButton"),
+  refreshIcon: $("refreshIcon"),
+  apiStatus: document.querySelector(".api-status"),
+  apiStatusText: $("apiStatusText"),
+  apiStatusDetail: $("apiStatusDetail"),
+  lastUpdated: $("lastUpdated"),
+  classes: $("metricClasses"),
+  classesSub: $("metricClassesSub"),
+  samples: $("metricSamples"),
+  samplesSub: $("metricSamplesSub"),
+  snr: $("metricSnr"),
+  snrSub: $("metricSnrSub"),
+  attacks: $("metricAttacks"),
+  attacksSub: $("metricAttacksSub"),
+  performance: $("performanceChart"),
+  performanceLoading: $("performanceLoading"),
+  attack: $("attackChart"),
+  attackLoading: $("attackLoading"),
+  attackSelect: $("attackSelect"),
+  heatmap: $("heatmapWrap"),
+  comparison: $("comparisonBody"),
+  snrSelect: $("snrSelect"),
+  snrContent: $("snrContent"),
+  updates: $("recentUpdates"),
+  toast: $("toast"),
+  userName: $("userName"),
+  userRole: $("userRole")
+};
+
+async function fetchAPI(endpoint, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      "Accept": "application/json",
+      ...(options.headers || {})
+    }
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = await response.json();
+      detail = body.detail || body.message || "";
+    } catch (_) {}
+    throw new Error(detail || `API request failed (${response.status})`);
+  }
+
+  const body = await response.json();
+
+  // Dashboard endpoints return { success: true, data: ... }.
+  // Unwrap once so renderers receive the actual payload.
+  if (
+    body &&
+    body.success === true &&
+    Object.prototype.hasOwnProperty.call(body, "data")
+  ) {
+    return body.data;
+  }
+
+  return body;
+}
+
+function formatNumber(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "N/A";
+  }
+
+  return new Intl.NumberFormat("en-IN", {
+    notation: Math.abs(value) >= 100000 ? "compact" : "standard",
+    maximumFractionDigits: 1
+  }).format(value);
+}
+
+function formatPercent(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "N/A";
+  }
+
+  return `${value.toFixed(2)}%`;
+}
+
+function formatSNR(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "N/A";
+  }
+
+  return `${value} dB`;
+}
+
+function showToast(message) {
+  els.toast.textContent = message;
+  els.toast.classList.add("show");
+
+  clearTimeout(showToast.timer);
+
+  showToast.timer = setTimeout(
+    () => els.toast.classList.remove("show"),
+    3500
+  );
+}
+
+function setAPIStatus(online, detail = "") {
+  els.apiStatus.classList.toggle("online", online);
+  els.apiStatus.classList.toggle("offline", !online);
+
+  els.apiStatusText.textContent = online ? "API ONLINE" : "API OFFLINE";
+
+  els.apiStatusDetail.textContent =
+    detail || (online ? "Backend connected" : "Backend unavailable");
+}
+
+function setLoading(isLoading) {
+  state.loading = isLoading;
+  els.refresh.classList.toggle("loading", isLoading);
+  els.refresh.disabled = isLoading;
+}
+
+function setLastUpdated() {
+  state.lastUpdated = new Date();
+
+  els.lastUpdated.textContent = state.lastUpdated.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function clearMetricSkeletons() {
+  [els.classes, els.samples, els.snr, els.attacks].forEach((el) => {
+    el.classList.remove("skeleton");
+  });
+}
+
+function renderSummary(data) {
+  clearMetricSkeletons();
+
+  const dataset = data?.dataset || {};
+  const evaluation = data?.evaluation || {};
+  const attacks = data?.attacks || data?.attack_methods || [];
+
+  const attackCount = Array.isArray(attacks)
+    ? attacks.length
+    : Number(evaluation.attack_methods ?? 0);
+
+  els.classes.textContent = formatNumber(dataset.num_classes);
+  els.classesSub.textContent = dataset.name || "Dataset";
+
+  els.samples.textContent = formatNumber(
+    evaluation.test_samples ??
+    dataset.test_samples ??
+    dataset.total_test_samples
+  );
+
+  els.samplesSub.textContent = dataset.name || "Test split";
+
+  els.snr.textContent = formatNumber(
+    evaluation.snr_levels ?? dataset.snr_levels
+  );
+
+  const min = dataset.snr_min;
+  const max = dataset.snr_max;
+
+  els.snrSub.textContent =
+    Number.isFinite(min) && Number.isFinite(max)
+      ? `${formatSNR(min)} to ${formatSNR(max)}`
+      : "SNR range from backend";
+
+  els.attacks.textContent = formatNumber(attackCount);
+  els.attacksSub.textContent = "Methods in evaluation";
+}
+
+function normalizeSeries(payload, key) {
+  if (!payload) return [];
+
+  const rows = Array.isArray(payload) ? payload : payload.data;
+
+  if (Array.isArray(rows)) {
+    return rows
+      .filter(row =>
+        row &&
+        row.snr != null &&
+        row[key] != null &&
+        Number.isFinite(Number(row.snr)) &&
+        Number.isFinite(Number(row[key]))
+      )
+      .map(row => ({
+        snr: Number(row.snr),
+        value: Number(row[key]) * 100
+      }));
+  }
+
+  const snr = payload.snr || payload.snr_levels;
+  const values = payload[key];
+
+  if (Array.isArray(snr) && Array.isArray(values)) {
+    return snr
+      .map((x, i) => ({
+        snr: Number(x),
+        value: Number(values[i]) * 100
+      }))
+      .filter(point =>
+        Number.isFinite(point.snr) &&
+        Number.isFinite(point.value)
+      );
+  }
+
+  return [];
+}
+
+function svgEl(name, attrs = {}) {
+  const el = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    name
+  );
+
+  Object.entries(attrs).forEach(([key, value]) => {
+    el.setAttribute(key, value);
+  });
+
+  return el;
+}
+
+function drawLineChart(svg, series, options = {}) {
+  svg.replaceChildren();
+
+  const width = svg.clientWidth || 720;
+  const height = svg.clientHeight || 290;
+
+  const pad = {
+    left: 44,
+    right: 18,
+    top: 18,
+    bottom: 34
+  };
+
+  const w = width - pad.left - pad.right;
+  const h = height - pad.top - pad.bottom;
+
+  const all = series.flatMap(s => s.points);
+
+  if (!all.length) return false;
+
+  const xs = all.map(p => p.snr);
+  const ys = all.map(p => p.value);
+
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+
+  const minY = Math.min(0, Math.min(...ys));
+  const maxY = Math.max(options.maxY ?? 100, Math.max(...ys));
+
+  const xScale = x =>
+    pad.left + ((x - minX) / ((maxX - minX) || 1)) * w;
+
+  const yScale = y =>
+    pad.top + h -
+    ((y - minY) / ((maxY - minY) || 1)) * h;
+
+  const grid = svgEl("g");
+  const axis = svgEl("g");
+  const paths = svgEl("g");
+
+  const ticks = 5;
+
+  for (let i = 0; i <= ticks; i++) {
+    const y = minY + ((maxY - minY) * i / ticks);
+    const yy = yScale(y);
+
+    grid.appendChild(svgEl("line", {
+      x1: pad.left,
+      x2: width - pad.right,
+      y1: yy,
+      y2: yy,
+      stroke: "rgba(210,225,216,.09)",
+      "stroke-width": "1"
+    }));
+
+    const label = svgEl("text", {
+      x: pad.left - 8,
+      y: yy + 3,
+      "text-anchor": "end",
+      fill: "#77837c",
+      "font-size": "9"
+    });
+
+    label.textContent = Number(y).toFixed(0);
+    axis.appendChild(label);
+  }
+
+  const xTicks = [...new Set(xs)].sort((a, b) => a - b);
+  const step = Math.max(1, Math.ceil(xTicks.length / 8));
+
+  xTicks
+    .filter((_, i) => i % step === 0 || i === xTicks.length - 1)
+    .forEach(x => {
+      const xx = xScale(x);
+
+      const label = svgEl("text", {
+        x: xx,
+        y: height - 10,
+        "text-anchor": "middle",
+        fill: "#77837c",
+        "font-size": "9"
+      });
+
+      label.textContent = x;
+      axis.appendChild(label);
+    });
+
+  const colors = options.colors || [
+    "#f4c542",
+    "#20c9d8",
+    "#52d273",
+    "#ff7070",
+    "#c58cff"
+  ];
+
+  series.forEach((s, idx) => {
+    if (!s.points.length) return;
+
+    const d = s.points
+      .map((p, i) =>
+        `${i ? "L" : "M"} ${xScale(p.snr).toFixed(2)} ${yScale(p.value).toFixed(2)}`
+      )
+      .join(" ");
+
+    paths.appendChild(svgEl("path", {
+      d,
+      fill: "none",
+      stroke: colors[idx % colors.length],
+      "stroke-width": "2.2",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round"
+    }));
+
+    s.points.forEach(p => {
+      const c = svgEl("circle", {
+        cx: xScale(p.snr),
+        cy: yScale(p.value),
+        r: "2.7",
+        fill: colors[idx % colors.length],
+        stroke: "#07100d",
+        "stroke-width": "1"
+      });
+
+      const title = svgEl("title");
+      title.textContent =
+        `${s.name} � SNR ${p.snr} dB � ${p.value.toFixed(2)}%`;
+
+      c.appendChild(title);
+      paths.appendChild(c);
+    });
+  });
+
+  const xTitle = svgEl("text", {
+    x: pad.left + w / 2,
+    y: height + 1,
+    "text-anchor": "middle",
+    fill: "#77837c",
+    "font-size": "9"
+  });
+
+  xTitle.textContent = "SNR (dB)";
+  axis.appendChild(xTitle);
+
+  svg.append(grid, paths, axis);
+
+  return true;
+}
+
+function renderPerformance(data) {
+  const baseline = normalizeSeries(data, "baseline_accuracy");
+  const robust = normalizeSeries(data, "robust_accuracy");
+
+  const hasData = drawLineChart(
+    els.performance,
+    [
+      { name: "Baseline", points: baseline },
+      { name: "Robust", points: robust }
+    ],
+    {
+      maxY: 100,
+      colors: ["#f4c542", "#20c9d8"]
+    }
+  );
+
+  els.performance.classList.toggle("has-data", hasData);
+  els.performanceLoading.classList.toggle("hidden", hasData);
+}
+
+function renderAttackSelect(methods) {
+  const previous = els.attackSelect.value;
+
+  els.attackSelect.innerHTML =
+    '<option value="">All attacks</option>';
+
+  methods.forEach(method => {
+    const option = document.createElement("option");
+
+    option.value = method;
+    option.textContent = method;
+
+    els.attackSelect.appendChild(option);
+  });
+
+  if (methods.includes(previous)) {
+    els.attackSelect.value = previous;
+  }
+}
+
+function getAttackSeries(data, selected = "") {
+  const rows = Array.isArray(data) ? data : data?.data;
+
+  if (Array.isArray(rows) && rows.length && rows[0]?.attack) {
+    const methods = [
+      ...new Set(rows.map(row => row.attack).filter(Boolean))
+    ];
+
+    const series = [];
+
+    methods
+      .filter(method => !selected || method === selected)
+      .forEach(method => {
+        const methodRows = rows.filter(
+          row => row.attack === method
+        );
+
+        const baselinePoints = methodRows
+          .filter(row =>
+            row.snr != null &&
+            row.baseline_asr != null
+          )
+          .map(row => ({
+            snr: Number(row.snr),
+            value: Number(row.baseline_asr) * 100
+          }))
+          .filter(point =>
+            Number.isFinite(point.snr) &&
+            Number.isFinite(point.value)
+          );
+
+        const robustPoints = methodRows
+          .filter(row =>
+            row.snr != null &&
+            row.robust_asr != null
+          )
+          .map(row => ({
+            snr: Number(row.snr),
+            value: Number(row.robust_asr) * 100
+          }))
+          .filter(point =>
+            Number.isFinite(point.snr) &&
+            Number.isFinite(point.value)
+          );
+
+        if (baselinePoints.length) {
+          series.push({
+            name: `${method} � Baseline`,
+            points: baselinePoints
+          });
+        }
+
+        if (robustPoints.length) {
+          series.push({
+            name: `${method} � Robust`,
+            points: robustPoints
+          });
+        }
+      });
+
+    return series;
+  }
+
+  // Compatibility fallback for older grouped API response shapes.
+  const methods = data?.methods || data?.attacks || {};
+
+  const entries = Array.isArray(methods)
+    ? methods.map(method => [
+        method.name || method.attack,
+        method
+      ])
+    : Object.entries(methods);
+
+  return entries
+    .filter(([name]) => name && (!selected || name === selected))
+    .flatMap(([name, payload]) => {
+      const baseline = normalizeSeries(payload, "baseline_asr");
+      const robust = normalizeSeries(payload, "robust_asr");
+
+      const legacy = baseline.length
+        ? baseline
+        : normalizeSeries(payload, "attack_success_rate").length
+          ? normalizeSeries(payload, "attack_success_rate")
+          : normalizeSeries(payload, "asr");
+
+      const result = [];
+
+      if (baseline.length || legacy.length) {
+        result.push({
+          name: `${name} � Baseline`,
+          points: baseline.length ? baseline : legacy
+        });
+      }
+
+      if (robust.length) {
+        result.push({
+          name: `${name} � Robust`,
+          points: robust
+        });
+      }
+
+      return result;
+    })
+    .filter(series => series.points.length);
+}
+
+function renderAttackChart(data) {
+  const rows = Array.isArray(data) ? data : data?.data || [];
+
+  const methods = [
+    ...new Set(rows.map(row => row.attack).filter(Boolean))
+  ];
+
+  renderAttackSelect(methods);
+
+  const series = getAttackSeries(
+    data,
+    els.attackSelect.value
+  );
+
+  const hasData = drawLineChart(
+    els.attack,
+    series,
+    {
+      maxY: 100,
+      colors: [
+        "#f4c542",
+        "#20c9d8",
+        "#52d273",
+        "#ff7070",
+        "#c58cff",
+        "#ff9f43",
+        "#6c9cff",
+        "#e879b9",
+        "#9bd36a",
+        "#d5a6ff"
+      ]
+    }
+  );
+
+  els.attack.classList.toggle("has-data", hasData);
+  els.attackLoading.classList.toggle("hidden", hasData);
+}
+
+function heatColor(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return "rgba(255,255,255,.03)";
+  }
+
+  const t = Math.max(
+    0,
+    Math.min(1, (value - min) / ((max - min) || 1))
+  );
+
+  if (value >= 0) {
+    return `rgba(244,197,66,${0.12 + t * 0.72})`;
+  }
+
+  const a = Math.min(
+    1,
+    Math.abs(value - min) / (Math.abs(min) || 1)
+  );
+
+  return `rgba(32,201,216,${0.12 + a * 0.62})`;
+}
+
+function renderHeatmap(data) {
+  els.heatmap.replaceChildren();
+
+  const rows = Array.isArray(data) ? data : data?.data;
+
+  if (!Array.isArray(rows) || !rows.length) {
+    const empty = document.createElement("div");
+
+    empty.className = "snr-empty";
+    empty.textContent =
+      "No generalization-gap data available from backend.";
+
+    els.heatmap.appendChild(empty);
+    return;
+  }
+
+  const attacks = [...new Set(rows.map(r => r.attack))];
+
+  const snrs = [
+    ...new Set(rows.map(r => Number(r.snr)))
+  ].sort((a, b) => a - b);
+
+  const values = rows
+    .map(r => Number(r.gap))
+    .filter(Number.isFinite);
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  const grid = document.createElement("div");
+
+  grid.className = "heatmap";
+
+  grid.style.gridTemplateColumns =
+    `110px repeat(${snrs.length}, minmax(25px, 1fr))`;
+
+  grid.appendChild(document.createElement("div"));
+
+  snrs.forEach(snr => {
+    const cell = document.createElement("div");
+
+    cell.className = "hm-label";
+    cell.style.justifyContent = "center";
+    cell.textContent = snr;
+
+    grid.appendChild(cell);
+  });
+
+  attacks.forEach(attack => {
+    const label = document.createElement("div");
+
+    label.className = "hm-label";
+    label.textContent = attack;
+
+    grid.appendChild(label);
+
+    snrs.forEach(snr => {
+      const row = rows.find(
+        r =>
+          r.attack === attack &&
+          Number(r.snr) === snr
+      );
+
+      const value = row ? Number(row.gap) : NaN;
+
+      const cell = document.createElement("div");
+
+      cell.className = "hm-cell";
+
+      // Keep color scaling based on the original backend fraction.
+      cell.style.background = heatColor(value, min, max);
+
+      // Convert fraction to percentage points for display only.
+      const percentagePoints = Number.isFinite(value)
+        ? value * 100
+        : NaN;
+
+      cell.title =
+        `${attack} � ${snr} dB � ${
+          Number.isFinite(percentagePoints)
+            ? percentagePoints.toFixed(2)
+            : "N/A"
+        } pp`;
+
+      cell.textContent = Number.isFinite(percentagePoints)
+        ? percentagePoints.toFixed(1)
+        : "�";
+
+      grid.appendChild(cell);
+    });
+  });
+
+  els.heatmap.appendChild(grid);
+}
+
+function renderComparison(data) {
+  const rows = Array.isArray(data) ? data : data?.data;
+
+  els.comparison.replaceChildren();
+
+  if (!Array.isArray(rows) || !rows.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+
+    td.colSpan = 4;
+    td.className = "table-empty";
+    td.textContent =
+      "No comparison data available from backend.";
+
+    tr.appendChild(td);
+    els.comparison.appendChild(tr);
+
+    return;
+  }
+
+  rows.forEach(row => {
+    const tr = document.createElement("tr");
+
+    const baseline = Number(row.baseline_asr);
+    const robust = Number(row.robust_asr);
+    const gap = Number(
+      row.gap ?? row.generalization_gap
+    );
+
+    const values = [
+      row.attack || "N/A",
+
+      Number.isFinite(baseline)
+        ? formatPercent(baseline * 100)
+        : "N/A",
+
+      Number.isFinite(robust)
+        ? formatPercent(robust * 100)
+        : "N/A",
+
+      Number.isFinite(gap)
+        ? `${(gap * 100).toFixed(2)} pp`
+        : "N/A"
+    ];
+
+    values.forEach((value, index) => {
+      const td = document.createElement("td");
+
+      td.textContent = value;
+
+      if (index === 3 && Number.isFinite(gap)) {
+        td.className =
+          gap >= 0 ? "gap-positive" : "gap-negative";
+      }
+
+      tr.appendChild(td);
+    });
+
+    els.comparison.appendChild(tr);
+  });
+}
+
+function populateSNR(data) {
+  const values = Array.isArray(data)
+    ? data
+    : data?.snr || data?.snr_levels || [];
+
+  const snrs = [
+    ...new Set(
+      values
+        .map(v =>
+          Number(typeof v === "object" ? v.snr : v)
+        )
+        .filter(Number.isFinite)
+    )
+  ].sort((a, b) => a - b);
+
+  els.snrSelect.innerHTML =
+    '<option value="">Select SNR</option>';
+
+  snrs.forEach(snr => {
+    const option = document.createElement("option");
+
+    option.value = snr;
+    option.textContent = `${snr} dB`;
+
+    els.snrSelect.appendChild(option);
+  });
+}
+
+function findSNRRow(data, snr) {
+  const rows = Array.isArray(data) ? data : data?.data;
+
+  if (Array.isArray(rows)) {
+    return rows.find(
+      r => Number(r.snr) === Number(snr)
+    ) || null;
+  }
+
+  return null;
+}
+
+function renderSNRDetail(snr) {
+  if (snr === "") {
+    els.snrContent.innerHTML =
+      '<div class="snr-empty">Select an SNR level after backend data is loaded.</div>';
+
+    return;
+  }
+
+  const row = findSNRRow(state.snr, snr);
+
+  if (!row) {
+    els.snrContent.innerHTML =
+      '<div class="snr-empty">No backend data is available for this SNR level.</div>';
+
+    return;
+  }
+
+  const metrics = [
+    ["Baseline Accuracy", row.baseline_accuracy],
+    ["Robust Accuracy", row.robust_accuracy],
+    ["Baseline FGSM ASR", row.baseline_fgsm_asr],
+    ["Robust FGSM ASR", row.robust_fgsm_asr],
+    ["Baseline PGD ASR", row.baseline_pgd_asr],
+    ["Robust PGD ASR", row.robust_pgd_asr],
+    ["Baseline MIM ASR", row.baseline_mim_asr],
+    ["Robust MIM ASR", row.robust_mim_asr],
+    ["Baseline C&W ASR", row.baseline_cw_asr],
+    ["Robust C&W ASR", row.robust_cw_asr],
+    ["Baseline Black-box ASR", row.baseline_blackbox_asr],
+    ["Robust Black-box ASR", row.robust_blackbox_asr]
+  ];
+
+  els.snrContent.innerHTML = "";
+
+  metrics.forEach(([label, value]) => {
+    const card = document.createElement("div");
+
+    card.className = "snr-metric";
+
+    const span = document.createElement("span");
+    span.textContent = label;
+
+    const strong = document.createElement("strong");
+
+    strong.textContent = value == null
+      ? "N/A"
+      : formatPercent(Number(value) * 100);
+
+    card.append(span, strong);
+
+    els.snrContent.appendChild(card);
+  });
+}
+
+function renderUpdates(data) {
+  const rows = Array.isArray(data)
+    ? data
+    : data?.updates || data?.data;
+
+  els.updates.replaceChildren();
+
+  if (!Array.isArray(rows) || !rows.length) {
+    const empty = document.createElement("div");
+
+    empty.className = "table-empty";
+    empty.textContent =
+      "No recent updates available from backend.";
+
+    els.updates.appendChild(empty);
+    return;
+  }
+
+  rows.slice(0, 8).forEach(item => {
+    const row = document.createElement("div");
+
+    row.className = "update-item";
+
+    const dot = document.createElement("span");
+    dot.className = "update-dot";
+
+    const body = document.createElement("div");
+
+    const title = document.createElement("strong");
+    title.textContent = item.title || "Untitled update";
+
+    const type = document.createElement("small");
+    type.textContent = item.type || "activity";
+
+    body.append(title, type);
+
+    const date = document.createElement("span");
+
+    date.className = "update-date";
+    date.textContent =
+      item.date || item.created_at || "�";
+
+    row.append(dot, body, date);
+
+    els.updates.appendChild(row);
+  });
+}
+
+async function loadDashboard() {
+  setLoading(true);
+
+  try {
+    const results = await Promise.allSettled([
+      fetchAPI("/dashboard/summary"),
+      fetchAPI("/dashboard/performance"),
+      fetchAPI("/dashboard/attacks"),
+      fetchAPI("/dashboard/generalization-gap"),
+      fetchAPI("/dashboard/snr"),
+      fetchAPI("/dashboard/recent-updates"),
+      fetchAPI("/evaluation/attack-summary")
+    ]);
+
+    const [
+      summary,
+      performance,
+      attacks,
+      gap,
+      snr,
+      updates,
+      comparison
+    ] = results;
+
+    if (summary.status === "fulfilled") {
+      state.summary = summary.value;
+
+      renderSummary(state.summary);
+
+      if (state.summary.user) {
+        els.userName.textContent =
+          state.summary.user.name || "User";
+
+        els.userRole.textContent =
+          state.summary.user.role || "AMCShield Console";
+      }
+    }
+
+    if (performance.status === "fulfilled") {
+      state.performance = performance.value;
+      renderPerformance(state.performance);
+    } else {
+      els.performanceLoading.textContent =
+        "Performance data unavailable.";
+    }
+
+    if (attacks.status === "fulfilled") {
+      state.attacks = attacks.value;
+      renderAttackChart(state.attacks);
+    } else {
+      els.attackLoading.textContent =
+        "Attack data unavailable.";
+    }
+
+    if (gap.status === "fulfilled") {
+      state.gap = gap.value;
+      renderHeatmap(state.gap);
+    } else {
+      renderHeatmap(null);
+    }
+
+    if (comparison.status === "fulfilled") {
+      renderComparison(comparison.value);
+    } else {
+      renderComparison(null);
+    }
+
+    if (snr.status === "fulfilled") {
+      state.snr = snr.value;
+      populateSNR(state.snr);
+    }
+
+    if (updates.status === "fulfilled") {
+      state.updates = updates.value;
+      renderUpdates(state.updates);
+    } else {
+      renderUpdates(null);
+    }
+
+    const anySuccess = results.some(
+      r => r.status === "fulfilled"
+    );
+
+    setAPIStatus(
+      anySuccess,
+      anySuccess
+        ? "Backend data loaded"
+        : "No endpoint responded"
+    );
+
+    if (!anySuccess) {
+      showToast(
+        "AMCShield backend is unavailable. No dummy data has been shown."
+      );
+    } else {
+      setLastUpdated();
+    }
+
+  } catch (error) {
+    console.error("Dashboard load failed:", error);
+
+    setAPIStatus(false, "Connection error");
+
+    showToast(
+      "Unable to load AMCShield backend data."
+    );
+
+  } finally {
+    setLoading(false);
+  }
+}
+
+els.refresh.addEventListener("click", loadDashboard);
+
+els.attackSelect.addEventListener("change", () => {
+  if (state.attacks) {
+    renderAttackChart(state.attacks);
+  }
+});
+
+els.snrSelect.addEventListener("change", () => {
+  renderSNRDetail(els.snrSelect.value);
+});
+
+els.menu.addEventListener("click", () => {
+  els.sidebar.classList.add("open");
+  els.overlay.classList.add("show");
+});
+
+els.overlay.addEventListener("click", () => {
+  els.sidebar.classList.remove("open");
+  els.overlay.classList.remove("show");
+});
+
+document.querySelectorAll(".nav-item").forEach(item => {
+  item.addEventListener("click", () => {
+    if (window.innerWidth <= 1000) {
+      els.sidebar.classList.remove("open");
+      els.overlay.classList.remove("show");
+    }
+  });
+});
+
+$("logoutButton").addEventListener("click", async () => {
+  try {
+    await window.AMCShieldSecurity.fetch(
+      "/api/auth/logout",
+      {
+        method: "POST",
+        credentials: "include"
+      }
+    );
+  } finally {
+    window.location.href = "/";
+  }
+});
+
+async function requireAuth() {
+  try {
+    const response = await fetch("/api/auth/me", {
+      headers: {
+        "Accept": "application/json"
+      },
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      window.location.href = "/";
+      return false;
+    }
+
+    const body = await response.json();
+    const user = body.user || {};
+
+    els.userName.textContent =
+      user.name || user.login || "User";
+
+    els.userRole.textContent =
+      user.role || "AMCShield Console";
+
+    return true;
+
+  } catch (error) {
+    console.error("Authentication check failed:", error);
+
+    window.location.href = "/";
+    return false;
+  }
+}
+
+window.addEventListener("resize", () => {
+  if (state.performance) {
+    renderPerformance(state.performance);
+  }
+
+  if (state.attacks) {
+    renderAttackChart(state.attacks);
+  }
+});
+
+requireAuth().then((authenticated) => {
+  if (authenticated) {
+    loadDashboard();
+  }
+});
+
+
+FILE: .\frontend\AMCShield_All_In_One\dashboard.css
+:root {
+  --bg: #050807;
+  --bg-2: #08100d;
+  --panel: rgba(11, 20, 16, .78);
+  --panel-2: rgba(7, 15, 12, .92);
+  --gold: #f4c542;
+  --gold-light: #ffd65a;
+  --gold-dark: #d9a928;
+  --cyan: #20c9d8;
+  --teal: #2ad9e8;
+  --green: #52d273;
+  --red: #ff7070;
+  --white: #f5f8f6;
+  --muted: #a7b0aa;
+  --muted-2: #77837c;
+  --line: rgba(203, 222, 211, .13);
+  --line-strong: rgba(203, 222, 211, .23);
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; min-height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--white);
+  font-family: "Inter", system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+button, select { font: inherit; }
+
+a { color: inherit; text-decoration: none; }
+
+.app-shell { min-height: 100vh; }
+
+.sidebar {
+  position: fixed;
+  z-index: 50;
+  inset: 0 auto 0 0;
+  width: 245px;
+  padding: 28px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(180deg, rgba(9, 18, 14, .97), rgba(4, 10, 8, .98));
+  border-right: 1px solid var(--line);
+}
+
+.sidebar-brand {
+  padding: 0 12px 30px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sidebar-brand img {
+  width: 185px;
+  height: auto;
+  display: block;
+}
+
+.side-nav {
+  padding-top: 22px;
+  display: grid;
+  gap: 6px;
+}
+
+.nav-item {
+  min-height: 45px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: rgba(237, 243, 239, .64);
+  font-size: 12px;
+  font-weight: 600;
+  transition: .18s ease;
+}
+
+.nav-item:hover {
+  color: var(--white);
+  background: rgba(255,255,255,.035);
+}
+
+.nav-item.active {
+  color: var(--gold-light);
+  background: linear-gradient(90deg, rgba(244,197,66,.12), rgba(244,197,66,.035));
+  border-color: rgba(244,197,66,.16);
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+
+.nav-icon {
+  width: 20px;
+  text-align: center;
+  color: currentColor;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 18px;
+}
+
+.sidebar-bottom { margin-top: auto; }
+
+.api-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0,0,0,.16);
+}
+
+.status-light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8b948f;
+  box-shadow: 0 0 9px rgba(139,148,143,.5);
+  flex: 0 0 auto;
+}
+
+.api-status.online .status-light {
+  background: var(--green);
+  box-shadow: 0 0 10px rgba(82,210,115,.7);
+}
+
+.api-status.offline .status-light {
+  background: var(--red);
+  box-shadow: 0 0 10px rgba(255,112,112,.5);
+}
+
+.api-status strong,
+.api-status small { display: block; }
+
+.api-status strong {
+  font-family: "Rajdhani", sans-serif;
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+
+.api-status small {
+  margin-top: 2px;
+  color: var(--muted-2);
+  font-size: 9px;
+}
+
+.side-action {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+  padding: 0 13px;
+}
+
+.side-action:hover {
+  color: var(--white);
+  border-color: var(--line-strong);
+}
+
+.main {
+  min-height: 100vh;
+  margin-left: 245px;
+  padding: 0 32px 28px;
+  background:
+    radial-gradient(circle at 82% 4%, rgba(31, 99, 86, .10), transparent 27%),
+    radial-gradient(circle at 35% 60%, rgba(244, 197, 66, .035), transparent 30%);
+}
+
+.topbar {
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar-left, .topbar-actions, .profile {
+  display: flex;
+  align-items: center;
+}
+
+.topbar-left { gap: 13px; }
+
+.eyebrow, .section-kicker {
+  color: var(--gold);
+  font-family: "Rajdhani", sans-serif;
+  font-size: 10px;
+  letter-spacing: .16em;
+  font-weight: 700;
+}
+
+.topbar h1 {
+  margin: 3px 0 0;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 28px;
+  letter-spacing: .01em;
+}
+
+.menu-btn { display: none; }
+
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  background: rgba(255,255,255,.025);
+  cursor: pointer;
+}
+
+.topbar-actions { gap: 18px; }
+
+.last-updated {
+  text-align: right;
+  border-right: 1px solid var(--line);
+  padding-right: 18px;
+}
+
+.last-updated span,
+.last-updated strong {
+  display: block;
+}
+
+.last-updated span {
+  color: var(--muted-2);
+  font-size: 8px;
+  letter-spacing: .15em;
+}
+
+.last-updated strong {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.refresh-btn {
+  min-height: 37px;
+  padding: 0 14px;
+  border: 1px solid rgba(244,197,66,.24);
+  border-radius: 9px;
+  background: rgba(244,197,66,.06);
+  color: var(--gold-light);
+  cursor: pointer;
+}
+
+.refresh-btn:hover { background: rgba(244,197,66,.12); }
+
+.refresh-btn.loading #refreshIcon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+.profile { gap: 9px; }
+
+.profile-avatar {
+  width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #11170f;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold-dark));
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.profile-copy strong,
+.profile-copy small { display: block; }
+
+.profile-copy strong { font-size: 11px; }
+.profile-copy small { color: var(--muted-2); font-size: 9px; margin-top: 2px; }
+
+.hero-card {
+  position: relative;
+  min-height: 330px;
+  margin-top: 26px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #0b1310;
+}
+
+.hero-background {
+  position: absolute;
+  inset: 0;
+  background-image: url("assets/amcshield-hero.png");
+  background-size: cover;
+  background-position: center 52%;
+  filter: saturate(.9) contrast(1.05);
+  transform: scale(1.015);
+}
+
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(3,8,6,.18), rgba(3,8,6,.46) 48%, rgba(3,8,6,.91) 88%),
+    linear-gradient(0deg, rgba(3,8,6,.78), transparent 52%);
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  width: min(590px, 55%);
+  padding: 53px 50px;
+}
+
+.hero-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--cyan);
+  font-family: "Rajdhani", sans-serif;
+  font-size: 10px;
+  letter-spacing: .16em;
+  font-weight: 700;
+}
+
+.hero-kicker span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 9px rgba(32,201,216,.65);
+}
+
+.hero-content h2 {
+  margin: 14px 0 12px;
+  font-family: "Rajdhani", sans-serif;
+  font-size: clamp(40px, 4.1vw, 66px);
+  line-height: .88;
+  letter-spacing: .015em;
+}
+
+.hero-content h2 strong { color: var(--gold-light); }
+
+.hero-content p {
+  max-width: 520px;
+  margin: 0;
+  color: rgba(240,246,242,.74);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 23px;
+}
+
+.gold-btn, .ghost-btn {
+  min-height: 41px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 17px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.gold-btn {
+  color: #12170f;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold-dark));
+}
+
+.ghost-btn {
+  color: var(--white);
+  border: 1px solid rgba(226,239,231,.22);
+  background: rgba(4,10,8,.30);
+  backdrop-filter: blur(5px);
+}
+
+.hero-signal {
+  position: absolute;
+  z-index: 2;
+  right: 28px;
+  bottom: 25px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border: 1px solid rgba(32,201,216,.28);
+  border-radius: 9px;
+  background: rgba(4,12,11,.48);
+  backdrop-filter: blur(7px);
+  color: var(--cyan);
+  font: 700 9px "Rajdhani", sans-serif;
+  letter-spacing: .13em;
+}
+
+.signal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 9px rgba(244,197,66,.75);
+}
+
+.signal-bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+}
+
+.signal-bars i {
+  display: block;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--gold), var(--cyan));
+}
+
+.signal-bars i:nth-child(1){height:8px}.signal-bars i:nth-child(2){height:15px}
+.signal-bars i:nth-child(3){height:22px}.signal-bars i:nth-child(4){height:12px}
+.signal-bars i:nth-child(5){height:19px}.signal-bars i:nth-child(6){height:24px}
+.signal-bars i:nth-child(7){height:13px}.signal-bars i:nth-child(8){height:8px}
+
+.section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  margin: 28px 0 13px;
+}
+
+.section-heading h2, .panel h2 {
+  margin: 4px 0 0;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 22px;
+}
+
+.data-source, .unit-label {
+  color: var(--muted-2);
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 13px;
+}
+
+.metric-card, .panel {
+  border: 1px solid var(--line);
+  background: linear-gradient(145deg, rgba(13,24,19,.76), rgba(6,13,10,.87));
+  border-radius: 13px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.12);
+}
+
+.metric-card {
+  min-height: 128px;
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-card::after {
+  content: "";
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  right: -50px;
+  top: -50px;
+  border-radius: 50%;
+  border: 1px solid rgba(244,197,66,.08);
+}
+
+.metric-icon {
+  width: 29px;
+  height: 29px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.035);
+  font-size: 16px;
+}
+
+.metric-icon.gold { color: var(--gold); }
+.metric-icon.cyan { color: var(--cyan); }
+.metric-icon.green { color: var(--green); }
+
+.metric-label {
+  color: var(--muted-2);
+  font-family: "Rajdhani", sans-serif;
+  font-size: 9px;
+  letter-spacing: .13em;
+}
+
+.metric-value {
+  margin-top: 2px;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.metric-sub {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.skeleton {
+  color: transparent;
+  border-radius: 5px;
+  background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.10), rgba(255,255,255,.04));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 13px;
+  margin-top: 13px;
+}
+
+.lower-grid, .bottom-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 13px;
+  margin-top: 13px;
+}
+
+.panel { padding: 20px; }
+
+.panel-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 15px;
+  min-height: 43px;
+}
+
+.legend {
+  display: flex;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.legend > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-dot {
+  width: 7px;
+  height: 7px;
+  display: inline-block;
+  border-radius: 50%;
+}
+
+.legend-dot.baseline { background: var(--gold); }
+.legend-dot.robust { background: var(--cyan); }
+
+.chart-wrap {
+  position: relative;
+  min-height: 290px;
+  margin-top: 13px;
+}
+
+.chart {
+  width: 100%;
+  height: 290px;
+  overflow: visible;
+}
+
+.chart-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted-2);
+  font-size: 11px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.chart.has-data + .chart-loading,
+.chart-loading.hidden {
+  display: none;
+}
+
+.select {
+  min-width: 120px;
+  height: 34px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  outline: none;
+  color: var(--muted);
+  background: #0b1511;
+  font-size: 10px;
+}
+
+.select:focus { border-color: rgba(244,197,66,.55); }
+
+.heatmap-wrap {
+  overflow: auto;
+  margin-top: 18px;
+  padding-bottom: 3px;
+}
+
+.heatmap {
+  display: grid;
+  gap: 2px;
+  min-width: 720px;
+}
+
+.hm-cell {
+  min-width: 25px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  font: 700 7px "Inter", sans-serif;
+  color: rgba(255,255,255,.85);
+}
+
+.hm-label {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.comparison-table-wrap {
+  overflow: auto;
+  margin-top: 17px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 480px;
+}
+
+th, td {
+  padding: 11px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  font-size: 9px;
+}
+
+th:first-child, td:first-child { text-align: left; }
+
+th {
+  color: var(--muted-2);
+  font-family: "Rajdhani", sans-serif;
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+
+td { color: var(--muted); }
+
+td:first-child {
+  color: var(--white);
+  font-weight: 600;
+}
+
+.gap-positive { color: var(--green); }
+.gap-negative { color: var(--red); }
+
+.table-empty {
+  padding: 28px 10px !important;
+  color: var(--muted-2) !important;
+  text-align: center !important;
+}
+
+.snr-panel { margin-top: 13px; }
+
+.snr-content {
+  margin-top: 17px;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.snr-empty {
+  grid-column: 1 / -1;
+  padding: 24px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  text-align: center;
+  color: var(--muted-2);
+  font-size: 10px;
+}
+
+.snr-metric {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(0,0,0,.12);
+}
+
+.snr-metric span {
+  display: block;
+  color: var(--muted-2);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.snr-metric strong {
+  display: block;
+  margin-top: 5px;
+  font: 700 20px "Rajdhani", sans-serif;
+}
+
+.bottom-grid { margin-top: 13px; }
+
+.updates-list {
+  margin-top: 14px;
+  display: grid;
+  gap: 7px;
+}
+
+.update-item {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(0,0,0,.10);
+}
+
+.update-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+.update-item strong {
+  display: block;
+  font-size: 10px;
+}
+
+.update-item small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted-2);
+  font-size: 8px;
+}
+
+.update-date {
+  color: var(--muted-2);
+  font-size: 8px;
+}
+
+.quick-links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.quick-links a {
+  min-height: 67px;
+  display: grid;
+  grid-template-columns: 28px 1fr 15px;
+  align-items: center;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(0,0,0,.10);
+  transition: .18s ease;
+}
+
+.quick-links a:hover {
+  border-color: rgba(244,197,66,.25);
+  transform: translateY(-1px);
+}
+
+.quick-links a > span {
+  color: var(--gold);
+  font-size: 17px;
+  text-align: center;
+}
+
+.quick-links strong, .quick-links small {
+  display: block;
+}
+
+.quick-links strong { font-size: 9px; }
+.quick-links small { margin-top: 3px; color: var(--muted-2); font-size: 7px; }
+.quick-links b { color: var(--muted); }
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: 24px;
+  padding: 15px 2px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted-2);
+  font-size: 8px;
+}
+
+.mobile-overlay {
+  display: none;
+}
+
+.toast {
+  position: fixed;
+  z-index: 100;
+  right: 22px;
+  bottom: 22px;
+  max-width: 360px;
+  padding: 12px 15px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #0b1511;
+  color: var(--muted);
+  font-size: 10px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.4);
+  transform: translateY(15px);
+  opacity: 0;
+  pointer-events: none;
+  transition: .22s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 1250px) {
+  .sidebar { width: 220px; }
+  .main { margin-left: 220px; padding: 0 22px 24px; }
+  .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .snr-content { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (max-width: 1000px) {
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+  }
+
+  .sidebar.open { transform: translateX(0); }
+
+  .mobile-overlay {
+    position: fixed;
+    z-index: 40;
+    inset: 0;
+    background: rgba(0,0,0,.58);
+    backdrop-filter: blur(2px);
+  }
+
+  .mobile-overlay.show { display: block; }
+
+  .main { margin-left: 0; }
+
+  .menu-btn { display: block; }
+
+  .dashboard-grid, .lower-grid, .bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-content { width: 70%; }
+}
+
+@media (max-width: 700px) {
+  .main { padding: 0 13px 20px; }
+
+  .topbar {
+    min-height: 74px;
+  }
+
+  .topbar-actions .last-updated,
+  .profile-copy {
+    display: none;
+  }
+
+  .topbar-actions { gap: 7px; }
+
+  .topbar h1 { font-size: 23px; }
+
+  .hero-card {
+    min-height: 400px;
+  }
+
+  .hero-content {
+    width: 100%;
+    padding: 35px 25px;
+  }
+
+  .hero-background { background-position: 38% center; }
+
+  .hero-overlay {
+    background:
+      linear-gradient(90deg, rgba(3,8,6,.48), rgba(3,8,6,.78)),
+      linear-gradient(0deg, rgba(3,8,6,.82), transparent 65%);
+  }
+
+  .hero-content h2 { font-size: 48px; }
+
+  .hero-signal { right: 15px; bottom: 15px; }
+
+  .metric-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .metric-card { min-height: 112px; padding: 14px; }
+
+  .panel { padding: 15px; }
+
+  .panel-header { align-items: start; }
+
+  .chart-wrap, .chart { min-height: 250px; height: 250px; }
+
+  .snr-content { grid-template-columns: repeat(2, 1fr); }
+
+  .quick-links { grid-template-columns: 1fr; }
+
+  footer { flex-direction: column; }
+}
+
+@media (max-width: 430px) {
+  .metric-grid { grid-template-columns: 1fr; }
+  .hero-content h2 { font-size: 42px; }
+  .hero-actions { flex-direction: column; align-items: stretch; }
+  .hero-signal { display: none; }
+}
+
+
+
+==========================================================================================
+4. DASHBOARD BACKEND
+==========================================================================================
+
+
+FILE: .\backend\routers\dashboard.py
+
+from fastapi import APIRouter, Depends
+
+from ..dependencies import require_authenticated
+from ..config import settings
+from ..services.results_service import ResultsService
+
+
+router = APIRouter(
+    prefix="/dashboard",
+    tags=["Dashboard"],
+    dependencies=[Depends(require_authenticated)],
+)
+
+service = ResultsService(settings.results_dir)
+
+
+@router.get("/summary")
+def summary():
+    return {
+        "success": True,
+        "data": service.dashboard_summary(),
+    }
+
+
+@router.get("/performance")
+def performance():
+    return {
+        "success": True,
+        "data": service.dashboard_performance(),
+    }
+
+
+@router.get("/attacks")
+def attacks():
+    return {
+        "success": True,
+        "data": service.dashboard_attacks(),
+    }
+
+
+@router.get("/generalization-gap")
+def generalization_gap():
+    return {
+        "success": True,
+        "data": service.dashboard_generalization_gap(),
+    }
+
+
+@router.get("/snr")
+def snr():
+    return {
+        "success": True,
+        "data": service.dashboard_snr(),
+    }
+
+
+@router.get("/recent-updates")
+def recent_updates():
+    return {
+        "success": True,
+        "data": service.dashboard_recent_updates(),
+    }
+
+
+
+FILE: .\backend\services\results_service.py
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+
+class ResultsService:
+    """Read-only analytics service for existing AMCShield evaluation artifacts."""
+
+    def __init__(self, results_dir: Path):
+        self.results_dir = Path(results_dir)
+
+    def exists(self) -> bool:
+        return self.results_dir.is_dir()
+
+    def list_files(self) -> list[str]:
+        if not self.exists():
+            return []
+        return sorted(
+            str(path.relative_to(self.results_dir))
+            for path in self.results_dir.rglob("*")
+            if path.is_file()
+        )
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "exists": self.exists(),
+            "file_count": len(self.list_files()),
+            "files": self.list_files(),
+        }
+
+    def read_json(self, filename: str) -> Any:
+        path = self._safe_path(filename)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def read_csv(self, filename: str) -> list[dict[str, Any]]:
+        path = self._safe_path(filename)
+        frame = pd.read_csv(path)
+        return frame.where(pd.notna(frame), None).to_dict(orient="records")
+
+    def _safe_path(self, filename: str) -> Path:
+        root = self.results_dir.resolve()
+        path = (root / filename).resolve()
+
+        if root != path and root not in path.parents:
+            raise ValueError("Invalid results path")
+
+        if not path.is_file():
+            raise FileNotFoundError(filename)
+
+        return path
+
+    def _load(self) -> tuple[dict[str, Any], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        metadata = self.read_json("metadata.json")
+        clean = pd.DataFrame(self.read_csv("clean_per_snr.csv"))
+        attacks = pd.DataFrame(self.read_csv("attack_results_per_snr.csv"))
+        gaps = pd.DataFrame(self.read_csv("generalization_gap.csv"))
+
+        required = {
+            "clean": {"model", "snr_db", "n_samples", "n_correct", "accuracy"},
+            "attacks": {
+                "model", "attack", "snr_db", "n_samples",
+                "n_originally_correct", "n_flipped",
+                "accuracy_under_attack", "attack_success_rate",
+            },
+            "gaps": {
+                "attack", "snr_db", "baseline_asr",
+                "robust_asr", "gap_robust_minus_baseline",
+            },
+        }
+
+        for name, frame in [
+            ("clean", clean),
+            ("attacks", attacks),
+            ("gaps", gaps),
+        ]:
+            missing = required[name] - set(frame.columns)
+            if missing:
+                raise ValueError(
+                    f"{name} CSV is missing required columns: {sorted(missing)}"
+                )
+
+        return metadata, clean, attacks, gaps
+
+    @staticmethod
+    def _records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+        return frame.where(pd.notna(frame), None).to_dict(orient="records")
+
+    @staticmethod
+    def _pooled_asr(frame: pd.DataFrame) -> float | None:
+        denominator = int(frame["n_originally_correct"].sum())
+        if denominator == 0:
+            return None
+        return float(frame["n_flipped"].sum() / denominator)
+
+    def evaluation_summary(self) -> dict[str, Any]:
+        metadata, clean, attacks, gaps = self._load()
+
+        def clean_mean(model: str) -> float | None:
+            rows = clean.loc[clean["model"] == model, "accuracy"]
+            return float(rows.mean()) if not rows.empty else None
+
+        def sample_total(model: str) -> int:
+            rows = clean.loc[clean["model"] == model, "n_samples"]
+            return int(rows.sum())
+
+        baseline = attacks[attacks["model"] == "baseline"]
+        robust = attacks[attacks["model"] == "robust"]
+
+        baseline_asr = self._pooled_asr(baseline)
+        robust_asr = self._pooled_asr(robust)
+
+        all_originally_correct = int(attacks["n_originally_correct"].sum())
+        all_flipped = int(attacks["n_flipped"].sum())
+        mean_gap = (
+            robust_asr - baseline_asr
+            if baseline_asr is not None and robust_asr is not None
+            else None
+        )
+
+        snrs = sorted(int(value) for value in clean["snr_db"].unique())
+
+        return {
+            "robust_clean_accuracy": clean_mean("robust"),
+            "robust_samples": sample_total("robust"),
+            "baseline_clean_accuracy": clean_mean("baseline"),
+            "baseline_samples": sample_total("baseline"),
+            "mean_robust_asr": robust_asr,
+            "mean_baseline_asr": baseline_asr,
+            "attack_scope": sorted(str(value) for value in attacks["attack"].unique()),
+            "mean_gap": mean_gap,
+            "gap_definition": "pooled robust ASR minus pooled baseline ASR",
+            "snr_levels": snrs,
+            "snr_min": min(snrs) if snrs else None,
+            "snr_max": max(snrs) if snrs else None,
+            "source": "evaluation CSV artifacts",
+            "status": metadata.get("status", "unknown"),
+            "message": "Metrics are calculated from the stored evaluation subset.",
+            "test_samples": int(metadata.get("total_samples", 0)),
+            "num_classes": int(metadata.get("num_classes", 0)),
+            "dataset": metadata.get("dataset"),
+            "attacks": sorted(str(value) for value in attacks["attack"].unique()),
+            "total_attack_samples": int(attacks["n_samples"].sum()),
+            "total_originally_correct": all_originally_correct,
+            "total_flipped": all_flipped,
+        }
+
+    def evaluation_filters(self) -> dict[str, Any]:
+        _, clean, attacks, _ = self._load()
+        return {
+            "models": sorted(str(value) for value in clean["model"].unique()),
+            "attacks": sorted(str(value) for value in attacks["attack"].unique()),
+            "snr_levels": sorted(int(value) for value in clean["snr_db"].unique()),
+        }
+
+    def evaluation_comparison(self) -> list[dict[str, Any]]:
+        _, _, attacks, _ = self._load()
+        rows = []
+
+        for attack in sorted(attacks["attack"].unique()):
+            baseline = attacks[
+                (attacks["model"] == "baseline") &
+                (attacks["attack"] == attack)
+            ]
+            robust = attacks[
+                (attacks["model"] == "robust") &
+                (attacks["attack"] == attack)
+            ]
+
+            rows.append({
+                "attack": str(attack),
+                "baseline_asr": self._pooled_asr(baseline),
+                "robust_asr": self._pooled_asr(robust),
+            })
+
+        return rows
+
+    def evaluation_attack_summary(self) -> list[dict[str, Any]]:
+        _, _, attacks, gaps = self._load()
+        rows = []
+
+        for attack in sorted(attacks["attack"].unique()):
+            baseline = attacks[
+                (attacks["model"] == "baseline") &
+                (attacks["attack"] == attack)
+            ]
+            robust = attacks[
+                (attacks["model"] == "robust") &
+                (attacks["attack"] == attack)
+            ]
+
+            baseline_asr = self._pooled_asr(baseline)
+            robust_asr = self._pooled_asr(robust)
+            gap_rows = gaps[gaps["attack"] == attack]
+
+            rows.append({
+                "attack": str(attack),
+                "baseline_asr": baseline_asr,
+                "robust_asr": robust_asr,
+                "gap": (
+                    robust_asr - baseline_asr
+                    if baseline_asr is not None and robust_asr is not None
+                    else None
+                ),
+                "generalization_gap": (
+                    robust_asr - baseline_asr
+                    if baseline_asr is not None and robust_asr is not None
+                    else None
+                ),
+                "mean_per_snr_gap": (
+                    float(gap_rows["gap_robust_minus_baseline"].mean())
+                    if not gap_rows.empty else None
+                ),
+            })
+
+        return rows
+
+    def evaluation_results(
+        self,
+        attack: str | None = None,
+        snr: int | None = None,
+        model: str | None = None,
+    ) -> list[dict[str, Any]]:
+        _, clean, attacks, gaps = self._load()
+        rows = []
+
+        selected_attacks = (
+            [attack] if attack and attack != "all"
+            else sorted(attacks["attack"].unique())
+        )
+
+        for attack_name in selected_attacks:
+            attack_rows = attacks[attacks["attack"] == attack_name]
+
+            if snr is not None:
+                attack_rows = attack_rows[attack_rows["snr_db"] == snr]
+
+            for _, attack_row in attack_rows.iterrows():
+                model_name = str(attack_row["model"])
+
+                if model and model != "all" and model != model_name:
+                    continue
+
+                snr_value = int(attack_row["snr_db"])
+                clean_row = clean[
+                    (clean["model"] == model_name) &
+                    (clean["snr_db"] == snr_value)
+                ]
+
+                baseline_gap = gaps[
+                    (gaps["attack"] == attack_name) &
+                    (gaps["snr_db"] == snr_value)
+                ]
+
+                accuracy = (
+                    float(clean_row.iloc[0]["accuracy"])
+                    if not clean_row.empty else None
+                )
+
+                gap_value = None
+                if not baseline_gap.empty:
+                    gap_value = float(
+                        baseline_gap.iloc[0]["gap_robust_minus_baseline"]
+                    )
+
+                rows.append({
+                    "model": model_name,
+                    "attack": str(attack_name),
+                    "snr": snr_value,
+                    "samples": int(attack_row["n_samples"]),
+                    "baseline_accuracy": (
+                        accuracy if model_name == "baseline" else None
+                    ),
+                    "robust_accuracy": (
+                        accuracy if model_name == "robust" else None
+                    ),
+                    "clean_accuracy": accuracy,
+                    "accuracy_under_attack": float(
+                        attack_row["accuracy_under_attack"]
+                    ),
+                    "attack_success_rate": float(
+                        attack_row["attack_success_rate"]
+                    ),
+                    "baseline_asr": (
+                        float(baseline_gap.iloc[0]["baseline_asr"])
+                        if not baseline_gap.empty else None
+                    ),
+                    "robust_asr": (
+                        float(baseline_gap.iloc[0]["robust_asr"])
+                        if not baseline_gap.empty else None
+                    ),
+                    "gap": gap_value,
+                    "mean_linf": float(attack_row["mean_linf"]),
+                    "mean_l2": float(attack_row["mean_l2"]),
+                })
+
+        return rows
+
+    def evaluation_accuracy_by_snr(self) -> list[dict[str, Any]]:
+        _, clean, _, _ = self._load()
+        pivot = clean.pivot(
+            index="snr_db",
+            columns="model",
+            values="accuracy",
+        ).reset_index()
+
+        rows = []
+        for _, row in pivot.iterrows():
+            rows.append({
+                "snr": int(row["snr_db"]),
+                "baseline_accuracy": (
+                    float(row["baseline"])
+                    if "baseline" in pivot.columns and pd.notna(row.get("baseline"))
+                    else None
+                ),
+                "robust_accuracy": (
+                    float(row["robust"])
+                    if "robust" in pivot.columns and pd.notna(row.get("robust"))
+                    else None
+                ),
+            })
+
+        return rows
+
+    def evaluation_generalization_gap(self) -> list[dict[str, Any]]:
+        _, _, _, gaps = self._load()
+        result = gaps.groupby("snr_db", as_index=False)[
+            "gap_robust_minus_baseline"
+        ].mean()
+
+        return [
+            {"snr": int(row["snr_db"]), "gap": float(row["gap_robust_minus_baseline"])}
+            for _, row in result.iterrows()
+        ]
+
+    def evaluation_insights(self) -> list[dict[str, Any]]:
+        comparison = self.evaluation_comparison()
+        clean_summary = self.evaluation_summary()
+        findings = []
+
+        for row in comparison:
+            if row["baseline_asr"] is None or row["robust_asr"] is None:
+                continue
+
+            difference = row["robust_asr"] - row["baseline_asr"]
+            direction = "lower" if difference < 0 else "higher"
+
+            findings.append({
+                "type": "comparison",
+                "title": f"{row['attack'].upper()} pooled ASR comparison",
+                "description": (
+                    f"Robust model pooled ASR is {abs(difference) * 100:.2f} "
+                    f"percentage points {direction} than baseline on this evaluation subset."
+                ),
+            })
+
+        findings.append({
+            "type": "clean_accuracy",
+            "title": "Clean accuracy comparison",
+            "description": (
+                f"Mean clean accuracy across SNR levels: baseline "
+                f"{clean_summary['baseline_clean_accuracy'] * 100:.2f}%, "
+                f"robust {clean_summary['robust_clean_accuracy'] * 100:.2f}%."
+            ),
+        })
+
+        return findings
+
+    def dashboard_performance(self) -> list[dict[str, Any]]:
+        return self.evaluation_accuracy_by_snr()
+
+    def dashboard_attacks(self) -> list[dict[str, Any]]:
+        _, _, attacks, _ = self._load()
+        rows = []
+
+        for attack in sorted(attacks["attack"].unique()):
+            baseline = attacks[
+                (attacks["model"] == "baseline") &
+                (attacks["attack"] == attack)
+            ]
+            robust = attacks[
+                (attacks["model"] == "robust") &
+                (attacks["attack"] == attack)
+            ]
+
+            for _, row in baseline.iterrows():
+                snr_value = int(row["snr_db"])
+                robust_row = robust[robust["snr_db"] == snr_value]
+
+                rows.append({
+                    "attack": str(attack),
+                    "snr": snr_value,
+                    "baseline_asr": float(row["attack_success_rate"]),
+                    "robust_asr": (
+                        float(robust_row.iloc[0]["attack_success_rate"])
+                        if not robust_row.empty else None
+                    ),
+                })
+
+        return rows
+
+    def dashboard_generalization_gap(self) -> list[dict[str, Any]]:
+        _, _, _, gaps = self._load()
+        return [
+            {
+                "attack": str(row["attack"]),
+                "snr": int(row["snr_db"]),
+                "gap": float(row["gap_robust_minus_baseline"]),
+            }
+            for _, row in gaps.iterrows()
+        ]
+
+    def dashboard_snr(self) -> list[dict[str, Any]]:
+        _, clean, attacks, _ = self._load()
+        rows = []
+
+        for snr_value in sorted(clean["snr_db"].unique()):
+            baseline = clean[
+                (clean["model"] == "baseline") &
+                (clean["snr_db"] == snr_value)
+            ]
+            robust = clean[
+                (clean["model"] == "robust") &
+                (clean["snr_db"] == snr_value)
+            ]
+
+            row: dict[str, Any] = {
+                "snr": int(snr_value),
+                "baseline_accuracy": (
+                    float(baseline.iloc[0]["accuracy"]) if not baseline.empty else None
+                ),
+                "robust_accuracy": (
+                    float(robust.iloc[0]["accuracy"]) if not robust.empty else None
+                ),
+            }
+
+            for attack_name in ["fgsm", "pgd", "mim", "cw", "blackbox"]:
+                for model_name, prefix in [
+                    ("baseline", "baseline"),
+                    ("robust", "robust"),
+                ]:
+                    match = attacks[
+                        (attacks["model"] == model_name) &
+                        (attacks["attack"] == attack_name) &
+                        (attacks["snr_db"] == snr_value)
+                    ]
+                    row[f"{prefix}_{attack_name}_asr"] = (
+                        float(match.iloc[0]["attack_success_rate"])
+                        if not match.empty else None
+                    )
+
+                robust_match = attacks[
+                    (attacks["model"] == "robust") &
+                    (attacks["attack"] == attack_name) &
+                    (attacks["snr_db"] == snr_value)
+                ]
+                row[f"{attack_name}_asr"] = (
+                    float(robust_match.iloc[0]["attack_success_rate"])
+                    if not robust_match.empty else None
+                )
+
+            rows.append(row)
+
+        return rows
+
+    def dashboard_summary(self) -> dict[str, Any]:
+        metadata, clean, attacks, _ = self._load()
+        snrs = sorted(int(value) for value in clean["snr_db"].unique())
+
+        return {
+            "dataset": {
+                "name": metadata.get("dataset"),
+                "num_classes": int(metadata.get("num_classes", 0)),
+                "snr_min": min(snrs) if snrs else None,
+                "snr_max": max(snrs) if snrs else None,
+            },
+            "evaluation": {
+                "test_samples": int(metadata.get("total_samples", 0)),
+                "snr_levels": len(snrs),
+                "attack_methods": sorted(
+                    str(value) for value in attacks["attack"].unique()
+                ),
+            },
+            "attacks": sorted(
+                str(value) for value in attacks["attack"].unique()
+            ),
+        }
+
+    def dashboard_recent_updates(self) -> list[dict[str, Any]]:
+        # Evaluation metadata does not contain dated activity records.
+        return []
+
+
+
+==========================================================================================
+5. DATASET FRONTEND
+==========================================================================================
+
+
+FILE: .\frontend\AMCShield_All_In_One\dataset.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#050807">
+  <title>AMCShield — Dataset</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dataset.css">
+  <script src="auth-guard.js"></script>
+  <script src="security.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <img src="assets/amcshield-logo.png" alt="AMCShield">
+    </div>
+    <nav class="side-nav">
+      <a class="nav-item" href="dashboard.html"><span>⌂</span>Dashboard</a>
+      <a class="nav-item active" href="dataset.html"><span>◫</span>Dataset</a>
+      <a class="nav-item" href="model-training.html"><span>▣</span>Model Training</a>
+      <a class="nav-item" href="adversarial-attacks.html"><span>⌁</span>Adversarial Attacks</a>
+      <a class="nav-item" href="evaluation-results.html"><span>◒</span>Evaluation Results</a>
+      <a class="nav-item" href="visualization.html"><span>▥</span>Visualization</a>
+      <a class="nav-item" href="reports.html"><span>▤</span>Reports</a>
+      <a class="nav-item" href="metrics-reference.html"><span>⊞</span>Metrics Reference</a>
+      <a class="nav-item" href="about.html"><span>ⓘ</span>About Project</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="api-status" id="apiStatus">
+        <i></i><div><strong id="apiText">Checking API</strong><small id="apiDetail">Connecting…</small></div>
+      </div>
+      <button class="logout" id="logout">↪ &nbsp; Logout</button>
+    </div>
+  </aside>
+
+  <div class="overlay" id="overlay"></div>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title-area">
+        <button class="menu" id="menu">☰</button>
+        <div>
+          <div class="eyebrow">AMCShield / DATA INTELLIGENCE</div>
+          <h1>Dataset</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="source-status"><span>DATA SOURCE</span><strong id="sourceName">Backend</strong></div>
+        <button class="refresh" id="refresh">↻ Refresh</button>
+        <div class="avatar" id="avatar">A</div>
+      </div>
+    </header>
+
+    <section class="dataset-hero">
+      <div class="hero-bg"></div>
+      <div class="hero-shade"></div>
+      <div class="hero-copy">
+        <div class="kicker"><b></b> RADIO FREQUENCY DATASET / SIGNAL INTELLIGENCE</div>
+        <h2>Understand the<br><strong>Signal Battlefield</strong></h2>
+        <p>Inspect the dataset used by AMCShield for automatic modulation classification under clean and adversarial conditions.</p>
+        <div class="hero-tags">
+          <span>DATASET PROFILE</span>
+          <span>CLASS DISTRIBUTION</span>
+          <span>SNR ANALYSIS</span>
+        </div>
+      </div>
+      <div class="dataset-status">
+        <span class="pulse"></span>
+        <div><strong id="datasetStatus">AWAITING DATA</strong><small id="datasetStatusDetail">Backend dataset metadata</small></div>
+      </div>
+    </section>
+
+    <div class="section-head">
+      <div><span class="section-kicker">DATASET OVERVIEW</span><h2>Mission Data</h2></div>
+      <span class="backend-note" id="lastUpdated">Not loaded</span>
+    </div>
+
+    <section class="metric-grid">
+      <article class="metric">
+        <span class="metric-icon gold">◈</span>
+        <label>DATASET</label>
+        <strong id="datasetName">—</strong>
+        <small id="datasetPath">Backend value</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon cyan">◫</span>
+        <label>TOTAL SAMPLES</label>
+        <strong id="totalSamples">—</strong>
+        <small id="sampleSplit">Awaiting metadata</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon green">◎</span>
+        <label>MODULATION CLASSES</label>
+        <strong id="classCount">—</strong>
+        <small id="classDetail">Awaiting metadata</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon gold">⌁</span>
+        <label>SIGNAL LENGTH</label>
+        <strong id="signalLength">—</strong>
+        <small id="inputShape">Awaiting metadata</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon cyan">≈</span>
+        <label>SNR LEVELS</label>
+        <strong id="snrLevels">—</strong>
+        <small id="snrRange">Awaiting metadata</small>
+      </article>
+      <article class="metric">
+        <span class="metric-icon green">↗</span>
+        <label>INPUT CHANNELS</label>
+        <strong id="channels">—</strong>
+        <small id="channelDetail">Awaiting metadata</small>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel distribution">
+        <div class="panel-head">
+          <div><span class="section-kicker">CLASS INTELLIGENCE</span><h2>Modulation Class Distribution</h2></div>
+          <span class="unit">samples</span>
+        </div>
+        <div class="bar-chart" id="classChart"><div class="empty">Waiting for backend class distribution…</div></div>
+      </article>
+
+      <article class="panel snr-panel">
+        <div class="panel-head">
+          <div><span class="section-kicker">SIGNAL CONDITIONS</span><h2>SNR Distribution</h2></div>
+          <span class="unit">dB</span>
+        </div>
+        <div class="snr-chart" id="snrChart"><div class="empty">Waiting for backend SNR distribution…</div></div>
+      </article>
+    </section>
+
+    <section class="content-grid second">
+      <article class="panel metadata">
+        <div class="panel-head">
+          <div><span class="section-kicker">DATA CONTRACT</span><h2>Dataset Specification</h2></div>
+          <span class="badge" id="formatBadge">Backend</span>
+        </div>
+        <div class="spec-grid" id="specGrid">
+          <div class="empty">Waiting for backend metadata…</div>
+        </div>
+      </article>
+
+      <article class="panel splits">
+        <div class="panel-head">
+          <div><span class="section-kicker">EXPERIMENT SPLITS</span><h2>Train / Validation / Test</h2></div>
+        </div>
+        <div class="split-list" id="splitList">
+          <div class="empty">Waiting for backend split information…</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel sample-panel">
+      <div class="panel-head">
+        <div><span class="section-kicker">SIGNAL INSPECTION</span><h2>Sample Preview</h2></div>
+        <div class="sample-actions">
+          <select id="classSelect"><option value="">Select class</option></select>
+          <select id="snrSelect"><option value="">Select SNR</option></select>
+          <button id="loadSample">Load Sample</button>
+        </div>
+      </div>
+      <div class="sample-area" id="sampleArea">
+        <div class="sample-placeholder">
+          <div class="radar">⌁</div>
+          <strong>Select signal parameters</strong>
+          <span>The waveform preview will be fetched from the backend. No sample is embedded in the frontend.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel quality-panel">
+      <div class="panel-head">
+        <div><span class="section-kicker">DATA QUALITY</span><h2>Integrity Checks</h2></div>
+        <span class="badge" id="qualityBadge">Backend</span>
+      </div>
+      <div class="quality-grid" id="qualityGrid">
+        <div class="empty">Waiting for backend quality checks…</div>
+      </div>
+    </section>
+
+    <footer>
+      <span>AMCShield © 2026</span>
+      <span>Medicaps University · Computer Science & Engineering</span>
+      <span>Secure AI Research Console</span>
+    </footer>
+  </main>
+</div>
+<script src="nav-admin.js" defer></script>
+<script src="dataset.js"></script>
+</body>
+</html>
+
+
+
+FILE: .\frontend\AMCShield_All_In_One\dataset.js
+/*
+ * AMCShield Dataset page.
+ * No experiment values are hardcoded here.
+ * All metadata, distributions, samples and quality checks come from FastAPI.
+ */
+const API_BASE_URL = "http://localhost:8000/api";
+
+const $ = id => document.getElementById(id);
+const state = { meta:null, classes:null, snr:null, quality:null };
+
+async function api(path, options={}) {
+  const r = await fetch(API_BASE_URL + path, {
+    ...options,
+    headers: {Accept:"application/json", ...(options.headers||{})}
+  });
+  if (!r.ok) {
+    let detail="";
+    try { const x=await r.json(); detail=x.detail||x.message||""; } catch(_){}
+    throw new Error(detail || `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
+function setAPI(ok, detail) {
+  const box=$("apiStatus");
+  box.classList.toggle("online",ok);
+  box.classList.toggle("offline",!ok);
+  $("apiText").textContent=ok?"API ONLINE":"API OFFLINE";
+  $("apiDetail").textContent=detail || (ok?"Dataset backend connected":"Backend unavailable");
+}
+
+function fmt(n) {
+  if(n===null||n===undefined||!Number.isFinite(Number(n))) return "—";
+  return new Intl.NumberFormat("en-IN",{maximumFractionDigits:0}).format(Number(n));
+}
+function pct(n) {
+  if(n===null||n===undefined||!Number.isFinite(Number(n))) return "—";
+  return `${Number(n).toFixed(1)}%`;
+}
+
+function renderMeta(d) {
+  state.meta=d;
+  const x=d.dataset||d;
+  $("datasetName").textContent=x.name ?? "—";
+  $("datasetPath").textContent=x.path ?? x.source ?? "Backend metadata";
+  $("totalSamples").textContent=fmt(x.total_samples ?? x.samples);
+  $("sampleSplit").textContent=x.test_samples!==undefined ? `Test: ${fmt(x.test_samples)}` : "Dataset total";
+  $("classCount").textContent=fmt(x.num_classes ?? x.class_count);
+  $("classDetail").textContent=x.classes_path ?? "Class metadata";
+  $("signalLength").textContent=fmt(x.signal_length);
+  $("inputShape").textContent=x.input_shape ? String(x.input_shape) : "Samples × channels × length";
+  $("snrLevels").textContent=fmt(x.snr_levels ?? (Array.isArray(x.snr_values)?x.snr_values.length:null));
+  const lo=x.snr_min, hi=x.snr_max;
+  $("snrRange").textContent=Number.isFinite(Number(lo))&&Number.isFinite(Number(hi))?`${lo} dB to ${hi} dB`:"Backend SNR range";
+  $("channels").textContent=fmt(x.input_channels ?? x.channels);
+  $("channelDetail").textContent=x.channel_names ? x.channel_names.join(", ") : "Signal channels";
+  $("sourceName").textContent=x.name || "Backend";
+  $("datasetStatus").textContent="DATASET READY";
+  $("datasetStatusDetail").textContent="Metadata loaded from backend";
+  $("formatBadge").textContent=x.format || "Backend";
+  const specs=[
+    ["Name",x.name],["Source",x.source],["Path",x.path],["Format",x.format],
+    ["Classes",x.num_classes ?? x.class_count],["Signal length",x.signal_length],
+    ["Input channels",x.input_channels ?? x.channels],["SNR range",x.snr_min!==undefined?`${x.snr_min} to ${x.snr_max} dB`:null],
+    ["SNR step",x.snr_step!==undefined?`${x.snr_step} dB`:null],["Train split",x.train_size],["Validation split",x.val_size],["Test split",x.test_size]
+  ];
+  const grid=$("specGrid"); grid.innerHTML="";
+  specs.forEach(([k,v])=>{
+    if(v===undefined||v===null) return;
+    const el=document.createElement("div"); el.className="spec";
+    el.innerHTML=`<span>${escapeHTML(k)}</span><strong>${escapeHTML(String(v))}</strong>`;
+    grid.appendChild(el);
+  });
+}
+
+function renderClassDistribution(data) {
+  const rows=Array.isArray(data)?data:(data.data||data.classes||[]);
+  const normalized=rows.map(x=>({
+    name:x.name??x.class_name??x.label??x.modulation,
+    value:Number(x.samples??x.count??x.total??x.value)
+  })).filter(x=>x.name!=null&&Number.isFinite(x.value));
+  const box=$("classChart"); box.innerHTML="";
+  if(!normalized.length){box.innerHTML='<div class="empty">No class distribution returned by backend.</div>';return;}
+  const max=Math.max(...normalized.map(x=>x.value));
+  normalized.sort((a,b)=>b.value-a.value);
+  normalized.forEach(x=>{
+    const row=document.createElement("div");row.className="bar-row";
+    row.innerHTML=`<span class="bar-label" title="${escapeHTML(String(x.name))}">${escapeHTML(String(x.name))}</span><div class="bar-track"><div class="bar-fill" style="width:${max?x.value/max*100:0}%"></div></div><span class="bar-value">${fmt(x.value)}</span>`;
+    box.appendChild(row);
+  });
+  populateClassSelect(normalized);
+}
+
+function renderSNRDistribution(data) {
+  const rows=Array.isArray(data)?data:(data.data||data.snr||[]);
+  const normalized=rows.map(x=>({
+    snr:Number(x.snr??x.level??x.value),
+    value:Number(x.samples??x.count??x.total??x.value_count??x.frequency)
+  })).filter(x=>Number.isFinite(x.snr)&&Number.isFinite(x.value)).sort((a,b)=>a.snr-b.snr);
+  const box=$("snrChart");box.innerHTML="";
+  if(!normalized.length){box.innerHTML='<div class="empty">No SNR distribution returned by backend.</div>';return;}
+  const max=Math.max(...normalized.map(x=>x.value));
+  const chart=document.createElement("div");chart.className="snr-grid";
+  normalized.forEach(x=>{
+    const col=document.createElement("div");col.className="snr-col";
+    const bar=document.createElement("div");bar.className="snr-bar";bar.style.height=`${max?x.value/max*100:0}%`;bar.title=`${x.snr} dB · ${fmt(x.value)} samples`;
+    const val=document.createElement("span");val.className="snr-value";val.textContent=fmt(x.value);
+    const lab=document.createElement("span");lab.className="snr-label";lab.textContent=x.snr;
+    col.append(bar,val,lab);chart.appendChild(col);
+  });
+  box.appendChild(chart);
+  populateSNRSelect(normalized.map(x=>x.snr));
+}
+
+function populateClassSelect(rows) {
+  const s=$("classSelect");s.innerHTML='<option value="">Select class</option>';
+  rows.forEach(x=>{const o=document.createElement("option");o.value=x.name;o.textContent=x.name;s.appendChild(o);});
+}
+function populateSNRSelect(values) {
+  const s=$("snrSelect");s.innerHTML='<option value="">Select SNR</option>';
+  values.forEach(x=>{const o=document.createElement("option");o.value=x;o.textContent=`${x} dB`;s.appendChild(o);});
+}
+
+function renderSplits(d) {
+  const x=d.splits||d;
+  const items=[
+    ["Train",x.train??x.train_size??x.training],
+    ["Validation",x.validation??x.val??x.val_size],
+    ["Test",x.test??x.test_size]
+  ].filter(x=>x[1]!==undefined&&x[1]!==null);
+  const box=$("splitList");box.innerHTML="";
+  if(!items.length){box.innerHTML='<div class="empty">No split information returned by backend.</div>';return;}
+  items.forEach(([name,value])=>{
+    let p=typeof value==="number"?value:(Number(value)||0);
+    if(p>1) p=p/100;
+    const row=document.createElement("div");row.className="split";
+    row.innerHTML=`<label>${escapeHTML(name)}</label><div class="split-track"><div class="split-fill" style="width:${Math.max(0,Math.min(100,p*100))}%"></div></div><span class="split-value">${typeof value==="number"&&value<=1?pct(value):String(value)}</span>`;
+    box.appendChild(row);
+  });
+}
+
+function renderQuality(d) {
+  const rows=Array.isArray(d)?d:(d.checks||d.data||[]);
+  const box=$("qualityGrid");box.innerHTML="";
+  if(!rows.length){box.innerHTML='<div class="empty">No integrity checks returned by backend.</div>';return;}
+  rows.forEach(x=>{
+    const ok=x.ok??x.passed??x.status==="passed";
+    const card=document.createElement("div");card.className="quality";
+    card.innerHTML=`<div class="quality-top"><strong>${escapeHTML(String(x.name||x.check||"Check"))}</strong><span class="${ok?'ok':''}">${ok?'PASSED':String(x.status||'REVIEW')}</span></div><small>${escapeHTML(String(x.detail??x.message??"Backend result"))}</small>`;
+    box.appendChild(card);
+  });
+}
+
+function escapeHTML(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
+
+function renderSample(d) {
+  const values=Array.isArray(d)?d:(d.samples||d.values||d.waveform||[]);
+  const points=values.map(v=>Array.isArray(v)?Number(v[0]):Number(v)).filter(Number.isFinite);
+  const box=$("sampleArea");
+  if(!points.length){box.innerHTML='<div class="sample-placeholder"><strong>No waveform returned</strong><span>The backend returned no numeric sample for this selection.</span></div>';return;}
+  const max=Math.max(...points.map(Math.abs))||1;
+  const W=1000,H=210,mid=105;
+  const step=W/Math.max(1,points.length-1);
+  const dpath=points.map((v,i)=>`${i?'L':'M'} ${(i*step).toFixed(2)} ${(mid-(v/max)*85).toFixed(2)}`).join(" ");
+  box.innerHTML=`<svg class="wave" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path class="grid" d="M0 30H1000M0 105H1000M0 180H1000"></path><path d="${dpath}"></path></svg>`;
+}
+
+async function loadSample(){
+  const cls=$("classSelect").value,snr=$("snrSelect").value;
+  if(!cls||snr===""){alert("Select both a modulation class and SNR level.");return;}
+  $("sampleArea").innerHTML='<div class="sample-placeholder"><strong>Loading waveform…</strong><span>Fetching the selected signal from the backend.</span></div>';
+  try{
+    const q=`?class_name=${encodeURIComponent(cls)}&snr=${encodeURIComponent(snr)}`;
+    renderSample(await api("/dataset/sample"+q));
+  }catch(e){
+    $("sampleArea").innerHTML='<div class="sample-placeholder"><strong>Sample unavailable</strong><span>The backend did not return a waveform for this selection.</span></div>';
+  }
+}
+
+async function load(){
+  $("refresh").disabled=true;
+  try{
+    const results=await Promise.allSettled([
+      api("/dataset/metadata"),
+      api("/dataset/class-distribution"),
+      api("/dataset/snr-distribution"),
+      api("/dataset/splits"),
+      api("/dataset/quality")
+    ]);
+    let any=false;
+    if(results[0].status==="fulfilled"){renderMeta(results[0].value);any=true}
+    if(results[1].status==="fulfilled"){state.classes=results[1].value;renderClassDistribution(state.classes);any=true}
+    if(results[2].status==="fulfilled"){state.snr=results[2].value;renderSNRDistribution(state.snr);any=true}
+    if(results[3].status==="fulfilled"){renderSplits(results[3].value);any=true}
+    if(results[4].status==="fulfilled"){state.quality=results[4].value;renderQuality(state.quality);any=true}
+    setAPI(any,"Dataset endpoints "+(any?"responding":"unavailable"));
+    $("lastUpdated").textContent=any?`Loaded ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"Not loaded";
+  }catch(e){setAPI(false,"Connection error")}
+  finally{$("refresh").disabled=false}
+}
+
+$("refresh").addEventListener("click",load);
+$("loadSample").addEventListener("click",loadSample);
+$("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").classList.add("show")});
+$("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").classList.remove("show")});
+$("logout").addEventListener("click",async()=>{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});location.href="/"});
+load();
+
+
+
+FILE: .\frontend\AMCShield_All_In_One\dataset.css
+:root{
+  --bg:#050807;--panel:rgba(10,19,15,.82);--gold:#f4c542;--gold2:#ffd65a;
+  --cyan:#20c9d8;--green:#52d273;--red:#ff7070;--white:#f4f8f5;
+  --muted:#a7b0aa;--muted2:#77837c;--line:rgba(203,222,211,.13);
+  --line2:rgba(203,222,211,.23)
+}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--white)}
+body{font-family:Inter,system-ui,sans-serif;overflow-x:hidden}button,select{font:inherit}a{color:inherit;text-decoration:none}
+.app-shell{min-height:100vh}.sidebar{position:fixed;z-index:50;inset:0 auto 0 0;width:245px;padding:28px 16px 18px;display:flex;flex-direction:column;background:linear-gradient(180deg,#09120e,#040a08);border-right:1px solid var(--line)}
+.sidebar-brand{padding:0 12px 30px;border-bottom:1px solid var(--line)}.sidebar-brand img{width:185px;display:block}
+.side-nav{padding-top:22px;display:grid;gap:6px}.nav-item{min-height:45px;display:flex;align-items:center;gap:13px;padding:0 13px;border:1px solid transparent;border-radius:10px;color:#aab3ad;font-size:12px;font-weight:600;transition:.18s}
+.nav-item:hover{color:#fff;background:#ffffff08}.nav-item.active{color:var(--gold2);background:linear-gradient(90deg,#f4c5421f,#f4c54208);border-color:#f4c54229;box-shadow:inset 3px 0 var(--gold)}.nav-item span{width:20px;text-align:center;font-family:Rajdhani;font-size:18px}
+.sidebar-bottom{margin-top:auto}.api-status{display:flex;align-items:center;gap:10px;padding:12px;margin-bottom:10px;border:1px solid var(--line);border-radius:10px;background:#00000029}.api-status i{width:8px;height:8px;border-radius:50%;background:#89918c;flex:0 0 auto}.api-status.online i{background:var(--green);box-shadow:0 0 10px #52d273b3}.api-status.offline i{background:var(--red);box-shadow:0 0 10px #ff707080}.api-status strong,.api-status small{display:block}.api-status strong{font:700 11px Rajdhani;letter-spacing:.08em}.api-status small{margin-top:2px;color:var(--muted2);font-size:9px}.logout{width:100%;height:40px;border:1px solid var(--line);border-radius:9px;background:transparent;color:var(--muted);text-align:left;padding:0 13px;cursor:pointer}
+.main{min-height:100vh;margin-left:245px;padding:0 32px 28px;background:radial-gradient(circle at 82% 4%,#1f635a1a,transparent 28%),radial-gradient(circle at 35% 60%,#f4c54209,transparent 30%)}
+.topbar{min-height:92px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.title-area{display:flex;align-items:center;gap:13px}.eyebrow,.section-kicker{color:var(--gold);font:700 10px Rajdhani;letter-spacing:.16em}.topbar h1{margin:3px 0 0;font:700 28px Rajdhani}.menu{display:none}.top-actions{display:flex;align-items:center;gap:16px}.source-status{padding-right:16px;border-right:1px solid var(--line);text-align:right}.source-status span,.source-status strong{display:block}.source-status span{color:var(--muted2);font-size:8px;letter-spacing:.13em}.source-status strong{margin-top:3px;color:var(--muted);font-size:10px}.refresh{height:37px;padding:0 14px;border:1px solid #f4c5423d;border-radius:9px;background:#f4c5420f;color:var(--gold2);cursor:pointer}.refresh:hover{background:#f4c5421c}.avatar{width:35px;height:35px;display:grid;place-items:center;border-radius:50%;background:linear-gradient(135deg,var(--gold2),#d9a928);color:#11170f;font-weight:800;font-size:12px}
+.dataset-hero{position:relative;min-height:290px;margin-top:26px;overflow:hidden;border:1px solid var(--line);border-radius:18px;background:#0b1310}.hero-bg{position:absolute;inset:0;background:url("assets/amcshield-hero.png") center 52%/cover;filter:saturate(.85) contrast(1.05)}.hero-shade{position:absolute;inset:0;background:linear-gradient(90deg,#0308063d,#03080655 42%,#030806e8 88%),linear-gradient(0deg,#030806bd,transparent 58%)}
+.hero-copy{position:relative;z-index:2;width:min(650px,65%);padding:48px}.kicker{display:flex;gap:8px;align-items:center;color:var(--cyan);font:700 10px Rajdhani;letter-spacing:.15em}.kicker b{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px #20c9d8aa}.hero-copy h2{margin:14px 0 12px;font:700 clamp(42px,4vw,63px)/.88 Rajdhani}.hero-copy h2 strong{color:var(--gold2)}.hero-copy p{max-width:580px;margin:0;color:#f0f6f2b8;font-size:13px;line-height:1.6}.hero-tags{display:flex;flex-wrap:wrap;gap:7px;margin-top:20px}.hero-tags span{padding:7px 9px;border:1px solid #20c9d838;border-radius:6px;background:#04110e66;color:#9cebf0;font:700 8px Rajdhani;letter-spacing:.09em}
+.dataset-status{position:absolute;z-index:3;right:25px;bottom:23px;display:flex;gap:9px;align-items:center;padding:10px 13px;border:1px solid #20c9d844;border-radius:9px;background:#040c0a8c;backdrop-filter:blur(7px)}.pulse{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px #f4c542b3}.dataset-status strong,.dataset-status small{display:block}.dataset-status strong{font:700 10px Rajdhani;letter-spacing:.13em;color:var(--cyan)}.dataset-status small{margin-top:2px;color:var(--muted2);font-size:8px}
+.section-head{display:flex;justify-content:space-between;align-items:end;margin:28px 0 13px}.section-head h2,.panel h2{margin:4px 0 0;font:700 22px Rajdhani}.backend-note,.unit{color:var(--muted2);font-size:9px;text-transform:uppercase;letter-spacing:.08em}
+.metric-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}.metric,.panel{border:1px solid var(--line);border-radius:13px;background:linear-gradient(145deg,#0d1813c2,#060d0ae0);box-shadow:0 18px 50px #0000001f}.metric{position:relative;min-height:128px;padding:16px;overflow:hidden}.metric:after{content:"";position:absolute;right:-48px;top:-48px;width:110px;height:110px;border:1px solid #f4c54212;border-radius:50%}.metric-icon{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;background:#ffffff08;font-size:15px;margin-bottom:10px}.metric-icon.gold{color:var(--gold)}.metric-icon.cyan{color:var(--cyan)}.metric-icon.green{color:var(--green)}.metric label{display:block;color:var(--muted2);font:700 8px Rajdhani;letter-spacing:.13em}.metric strong{display:block;margin-top:3px;font:700 20px Rajdhani;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric small{display:block;margin-top:2px;color:var(--muted2);font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.content-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:13px;margin-top:13px}.content-grid.second{grid-template-columns:1fr 1fr}.panel{padding:20px}.panel-head{min-height:43px;display:flex;align-items:end;justify-content:space-between;gap:12px}.bar-chart,.snr-chart{min-height:280px;margin-top:18px}.empty{min-height:120px;display:grid;place-items:center;border:1px dashed var(--line);border-radius:9px;color:var(--muted2);font-size:10px;padding:20px;text-align:center}
+.bar-row{display:grid;grid-template-columns:72px 1fr 60px;gap:10px;align-items:center;margin:10px 0}.bar-label{font:600 9px Rajdhani;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bar-track{height:14px;border-radius:3px;background:#ffffff08;overflow:hidden}.bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#dcae2e,var(--gold2));box-shadow:0 0 14px #f4c54222}.bar-value{text-align:right;color:var(--muted);font-size:8px}
+.snr-grid{height:280px;display:flex;align-items:end;gap:5px;padding:0 2px 25px;border-bottom:1px solid var(--line)}.snr-col{height:100%;flex:1;display:flex;flex-direction:column;justify-content:end;align-items:center;gap:6px}.snr-bar{width:100%;max-width:24px;min-height:2px;border-radius:3px 3px 0 0;background:linear-gradient(180deg,var(--cyan),#157b85);box-shadow:0 0 13px #20c9d81a}.snr-value{font-size:7px;color:var(--muted2)}.snr-label{font:700 7px Rajdhani;color:var(--muted2)}
+.spec-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:17px}.spec{padding:12px;border:1px solid var(--line);border-radius:8px;background:#00000014}.spec span{display:block;color:var(--muted2);font-size:8px}.spec strong{display:block;margin-top:4px;color:var(--white);font:600 12px Rajdhani;word-break:break-word}.badge{padding:5px 8px;border:1px solid #20c9d82e;border-radius:6px;color:var(--cyan);font:700 8px Rajdhani;letter-spacing:.08em}
+.split-list{display:grid;gap:8px;margin-top:17px}.split{display:grid;grid-template-columns:92px 1fr 60px;align-items:center;gap:10px}.split label{font:700 9px Rajdhani;color:var(--muted)}.split-track{height:8px;border-radius:5px;background:#ffffff08;overflow:hidden}.split-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--cyan),#52d273)}.split-value{text-align:right;color:var(--muted);font-size:8px}
+.sample-panel{margin-top:13px}.sample-actions{display:flex;gap:7px;align-items:center}.sample-actions select{height:32px;min-width:100px;padding:0 8px;border:1px solid var(--line2);border-radius:7px;background:#0b1511;color:var(--muted);font-size:9px}.sample-actions button{height:32px;padding:0 12px;border:1px solid #f4c54242;border-radius:7px;background:#f4c54212;color:var(--gold2);font-size:9px;font-weight:700;cursor:pointer}.sample-area{height:235px;margin-top:15px;border:1px solid var(--line);border-radius:9px;background:radial-gradient(circle at center,#20c9d80a,transparent 50%),#00000014;overflow:hidden}.sample-placeholder{height:100%;display:grid;place-items:center;align-content:center;gap:7px;text-align:center;color:var(--muted2)}.sample-placeholder .radar{width:48px;height:48px;display:grid;place-items:center;border:1px solid #20c9d84d;border-radius:50%;color:var(--cyan);font:700 25px Rajdhani;box-shadow:0 0 30px #20c9d80c}.sample-placeholder strong{color:var(--muted);font-size:11px}.sample-placeholder span{max-width:430px;font-size:8px;line-height:1.5}
+.wave{width:94%;height:190px}.wave path{fill:none;stroke:var(--cyan);stroke-width:2}.wave .grid{stroke:#ffffff0d;stroke-width:1}
+.quality-panel{margin-top:13px}.quality-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}.quality{padding:13px;border:1px solid var(--line);border-radius:8px}.quality-top{display:flex;align-items:center;justify-content:space-between}.quality strong{font:700 11px Rajdhani}.quality .ok{color:var(--green);font:700 8px Rajdhani}.quality small{display:block;margin-top:5px;color:var(--muted2);font-size:8px}
+footer{display:flex;justify-content:space-between;gap:15px;margin-top:24px;padding:15px 2px 0;border-top:1px solid var(--line);color:var(--muted2);font-size:8px}
+.overlay{display:none}
+@media(max-width:1250px){.sidebar{width:220px}.main{margin-left:220px;padding:0 22px 24px}.metric-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:1000px){.sidebar{transform:translateX(-100%);transition:.22s}.sidebar.open{transform:translateX(0)}.overlay{position:fixed;z-index:40;inset:0;background:#0009;backdrop-filter:blur(2px)}.overlay.show{display:block}.main{margin-left:0}.menu{display:block;width:38px;height:38px;border:1px solid var(--line);border-radius:9px;background:#ffffff06;color:var(--muted);cursor:pointer}.content-grid,.content-grid.second{grid-template-columns:1fr}.quality-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.main{padding:0 13px 20px}.topbar{min-height:74px}.source-status{display:none}.top-actions{gap:7px}.dataset-hero{min-height:380px}.hero-copy{width:100%;padding:35px 25px}.hero-copy h2{font-size:48px}.hero-bg{background-position:38% center}.hero-shade{background:linear-gradient(90deg,#03080655,#030806c7),linear-gradient(0deg,#030806d9,transparent 65%)}.dataset-status{right:15px;bottom:15px}.metric-grid{grid-template-columns:1fr 1fr}.panel{padding:15px}.sample-actions{flex-wrap:wrap}.quality-grid{grid-template-columns:1fr}.spec-grid{grid-template-columns:1fr}.split{grid-template-columns:72px 1fr 52px}footer{flex-direction:column}}
+@media(max-width:430px){.metric-grid{grid-template-columns:1fr}.hero-copy h2{font-size:42px}.hero-tags{display:none}}
+
+
+
+==========================================================================================
+6. DATASET BACKEND
+==========================================================================================
+
+
+FILE: .\backend\routers\dataset.py
+from fastapi import APIRouter, Depends
+from ..dependencies import require_authenticated
+from ..config import settings
+from ..services.dataset_service import DatasetService
+
+router = APIRouter(
+    prefix="/dataset",
+    tags=["Dataset"],
+    dependencies=[Depends(require_authenticated)],
+)
+service = DatasetService(settings.data_dir)
+
+@router.get("/metadata")
+def metadata():
+    return {"success": True, "data": service.overview()}
+
+@router.get("/overview")
+def overview():
+    return {"success": True, "data": service.overview()}
+
+
+
+FILE: .\backend\services\dataset_service.py
+from pathlib import Path
+from typing import Any
+
+class DatasetService:
+    def __init__(self, data_dir: Path):
+        self.data_dir = Path(data_dir)
+
+    def overview(self) -> dict[str, Any]:
+        files = []
+        if self.data_dir.exists():
+            files = sorted(
+                str(p.relative_to(self.data_dir))
+                for p in self.data_dir.rglob("*")
+                if p.is_file()
+            )
+        return {
+            "exists": self.data_dir.exists(),
+            "files": files,
+        }
+
+
+
+==========================================================================================
+7. BACKEND ROUTER REGISTRATION
+==========================================================================================
+
+FILE: .\backend\main.py
+Line 8: from fastapi.staticfiles import StaticFiles
+Line 173: f"{settings.api_prefix}/"
+Line 199: app.include_router(
+Line 201: prefix=settings.api_prefix,
+Line 231: FRONTEND_DIR = settings.frontend_dir.resolve()
+Line 233: if not FRONTEND_DIR.exists():
+Line 235: f"AMCShield frontend directory not found: {FRONTEND_DIR}"
+Line 238: if not (FRONTEND_DIR / "index.html").is_file():
+Line 241: f"{FRONTEND_DIR / 'index.html'}"
+Line 261: FRONTEND_DIR / filename,
+Line 294: StaticFiles(
+Line 295: directory=str(FRONTEND_DIR),
+
+
+==========================================================================================
+8. ALL BACKEND ROUTE DEFINITIONS
+==========================================================================================
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\admin.py
+Line 36: prefix="/admin",
+Line 37: tags=["Admin"],
+Line 102: @router.get("/messages")
+Line 155: @router.get("/messages/{message_id}")
+Line 193: @router.post(
+Line 365: @router.post(
+Line 449: @router.post(
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\admin_users.py
+Line 44: prefix="/admin/users",
+Line 45: tags=["Admin User Management"],
+Line 56: @router.post("/invite", dependencies=[Depends(require_csrf)])
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\attacks.py
+Line 7: prefix="/attacks",
+Line 8: tags=["Adversarial Attacks"],
+Line 13: @router.get("/overview")
+Line 17: @router.get("/results")
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\auth.py
+Line 37: router = APIRouter(prefix="/auth", tags=["Authentication"])
+Line 57: @router.post("/contact-admin", dependencies=[Depends(require_csrf)])
+Line 146: @router.get("/github/login")
+Line 172: @router.get("/github/callback")
+Line 367: @router.get("/csrf")
+Line 373: @router.post("/login")
+Line 527: @router.get("/me")
+Line 535: @router.post("/logout", dependencies=[Depends(require_csrf)])
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\dashboard.py
+Line 10: prefix="/dashboard",
+Line 11: tags=["Dashboard"],
+Line 18: @router.get("/summary")
+Line 26: @router.get("/performance")
+Line 34: @router.get("/attacks")
+Line 42: @router.get("/generalization-gap")
+Line 50: @router.get("/snr")
+Line 58: @router.get("/recent-updates")
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\dataset.py
+Line 7: prefix="/dataset",
+Line 8: tags=["Dataset"],
+Line 13: @router.get("/metadata")
+Line 17: @router.get("/overview")
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\evaluation.py
+Line 7: prefix="/evaluation",
+Line 8: tags=["Evaluation"],
+Line 15: @router.get("/summary")
+Line 23: @router.get("/artifacts")
+Line 31: @router.get("/filters")
+Line 39: @router.get("/comparison")
+Line 47: @router.get("/attack-summary")
+Line 55: @router.get("/results")
+Line 71: @router.get("/accuracy-by-snr")
+Line 79: @router.get("/generalization-gap")
+Line 87: @router.get("/insights")
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\invitations.py
+Line 25: prefix="/account/invite",
+Line 26: tags=["Account Invitation"],
+Line 100: @router.get("/validate")
+Line 181: @router.post("/complete", dependencies=[Depends(require_csrf)])
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\project.py
+Line 6: prefix="/project",
+Line 7: tags=["Project"],
+Line 11: @router.get("/overview")
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\reports.py
+Line 7: prefix="/reports",
+Line 8: tags=["Reports"],
+Line 13: @router.get("/summary")
+Line 17: @router.get("/artifacts")
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\training.py
+Line 7: prefix="/training",
+Line 8: tags=["Training"],
+Line 13: @router.get("/overview")
+Line 17: @router.get("/status")
+Line 21: @router.get("/checkpoints")
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\visualization.py
+Line 7: prefix="/visualization",
+Line 8: tags=["Visualization"],
+Line 13: @router.get("/summary")
+Line 17: @router.get("/artifacts")
+
+ROUTER: D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\__init__.py
+
+
+==========================================================================================
+9. DASHBOARD API REFERENCES
+==========================================================================================
+
+FILE: .\frontend\AMCShield_All_In_One\dashboard.js
+Line 10: const API_BASE_URL = "/api";
+Line 58: async function fetchAPI(endpoint, options = {}) {
+Line 59: const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+Line 909: fetchAPI("/dashboard/summary"),
+Line 910: fetchAPI("/dashboard/performance"),
+Line 911: fetchAPI("/dashboard/attacks"),
+Line 912: fetchAPI("/dashboard/generalization-gap"),
+Line 913: fetchAPI("/dashboard/snr"),
+Line 914: fetchAPI("/dashboard/recent-updates"),
+Line 915: fetchAPI("/evaluation/attack-summary")
+Line 1049: await window.AMCShieldSecurity.fetch(
+Line 1050: "/api/auth/logout",
+Line 1063: const response = await fetch("/api/auth/me", {
+
+
+==========================================================================================
+10. DATASET API REFERENCES
+==========================================================================================
+
+FILE: .\frontend\AMCShield_All_In_One\dataset.js
+Line 6: const API_BASE_URL = "http://localhost:8000/api";
+Line 11: async function api(path, options={}) {
+Line 12: const r = await fetch(API_BASE_URL + path, {
+Line 24: function setAPI(ok, detail) {
+Line 174: renderSample(await api("/dataset/sample"+q));
+Line 184: api("/dataset/metadata"),
+Line 185: api("/dataset/class-distribution"),
+Line 186: api("/dataset/snr-distribution"),
+Line 187: api("/dataset/splits"),
+Line 188: api("/dataset/quality")
+Line 196: setAPI(any,"Dataset endpoints "+(any?"responding":"unavailable"));
+Line 198: }catch(e){setAPI(false,"Connection error")}
+Line 206: $("logout").addEventListener("click",async()=>{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});location.href="/"});
+
+
+==========================================================================================
+11. DATASET HTML ELEMENT IDS
+==========================================================================================
+
+FILE: .\frontend\AMCShield_All_In_One\dataset.html
+Line 17: <aside class="sidebar" id="sidebar">
+Line 33: <div class="api-status" id="apiStatus">
+Line 34: <i></i><div><strong id="apiText">Checking API</strong><small id="apiDetail">Connecting�</small></div>
+Line 36: <button class="logout" id="logout">? &nbsp; Logout</button>
+Line 40: <div class="overlay" id="overlay"></div>
+Line 45: <button class="menu" id="menu">?</button>
+Line 52: <div class="source-status"><span>DATA SOURCE</span><strong id="sourceName">Backend</strong></div>
+Line 53: <button class="refresh" id="refresh">? Refresh</button>
+Line 54: <div class="avatar" id="avatar">A</div>
+Line 73: <div><strong id="datasetStatus">AWAITING DATA</strong><small id="datasetStatusDetail">Backend dataset metadata</small></div>
+Line 79: <span class="backend-note" id="lastUpdated">Not loaded</span>
+Line 86: <strong id="datasetName">�</strong>
+Line 87: <small id="datasetPath">Backend value</small>
+Line 92: <strong id="totalSamples">�</strong>
+Line 93: <small id="sampleSplit">Awaiting metadata</small>
+Line 98: <strong id="classCount">�</strong>
+Line 99: <small id="classDetail">Awaiting metadata</small>
+Line 104: <strong id="signalLength">�</strong>
+Line 105: <small id="inputShape">Awaiting metadata</small>
+Line 110: <strong id="snrLevels">�</strong>
+Line 111: <small id="snrRange">Awaiting metadata</small>
+Line 116: <strong id="channels">�</strong>
+Line 117: <small id="channelDetail">Awaiting metadata</small>
+Line 127: <div class="bar-chart" id="classChart"><div class="empty">Waiting for backend class distribution�</div></div>
+Line 135: <div class="snr-chart" id="snrChart"><div class="empty">Waiting for backend SNR distribution�</div></div>
+Line 143: <span class="badge" id="formatBadge">Backend</span>
+Line 145: <div class="spec-grid" id="specGrid">
+Line 154: <div class="split-list" id="splitList">
+Line 164: <select id="classSelect"><option value="">Select class</option></select>
+Line 165: <select id="snrSelect"><option value="">Select SNR</option></select>
+Line 166: <button id="loadSample">Load Sample</button>
+Line 169: <div class="sample-area" id="sampleArea">
+Line 181: <span class="badge" id="qualityBadge">Backend</span>
+Line 183: <div class="quality-grid" id="qualityGrid">
+
+
+==========================================================================================
+12. DATASET JAVASCRIPT ELEMENT REFERENCES
+==========================================================================================
+
+FILE: .\frontend\AMCShield_All_In_One\dataset.js
+Line 8: const $ = id => document.getElementById(id);
+Line 25: const box=$("apiStatus");
+Line 28: $("apiText").textContent=ok?"API ONLINE":"API OFFLINE";
+Line 29: $("apiDetail").textContent=detail || (ok?"Dataset backend connected":"Backend unavailable");
+Line 44: $("datasetName").textContent=x.name ?? "�";
+Line 45: $("datasetPath").textContent=x.path ?? x.source ?? "Backend metadata";
+Line 46: $("totalSamples").textContent=fmt(x.total_samples ?? x.samples);
+Line 47: $("sampleSplit").textContent=x.test_samples!==undefined ? `Test: ${fmt(x.test_samples)}` : "Dataset total";
+Line 48: $("classCount").textContent=fmt(x.num_classes ?? x.class_count);
+Line 49: $("classDetail").textContent=x.classes_path ?? "Class metadata";
+Line 50: $("signalLength").textContent=fmt(x.signal_length);
+Line 51: $("inputShape").textContent=x.input_shape ? String(x.input_shape) : "Samples � channels � length";
+Line 52: $("snrLevels").textContent=fmt(x.snr_levels ?? (Array.isArray(x.snr_values)?x.snr_values.length:null));
+Line 54: $("snrRange").textContent=Number.isFinite(Number(lo))&&Number.isFinite(Number(hi))?`${lo} dB to ${hi} dB`:"Backend SNR range";
+Line 55: $("channels").textContent=fmt(x.input_channels ?? x.channels);
+Line 56: $("channelDetail").textContent=x.channel_names ? x.channel_names.join(", ") : "Signal channels";
+Line 57: $("sourceName").textContent=x.name || "Backend";
+Line 58: $("datasetStatus").textContent="DATASET READY";
+Line 59: $("datasetStatusDetail").textContent="Metadata loaded from backend";
+Line 60: $("formatBadge").textContent=x.format || "Backend";
+Line 67: const grid=$("specGrid"); grid.innerHTML="";
+Line 82: const box=$("classChart"); box.innerHTML="";
+Line 100: const box=$("snrChart");box.innerHTML="";
+Line 116: const s=$("classSelect");s.innerHTML='<option value="">Select class</option>';
+Line 120: const s=$("snrSelect");s.innerHTML='<option value="">Select SNR</option>';
+Line 131: const box=$("splitList");box.innerHTML="";
+Line 144: const box=$("qualityGrid");box.innerHTML="";
+Line 159: const box=$("sampleArea");
+Line 169: const cls=$("classSelect").value,snr=$("snrSelect").value;
+Line 171: $("sampleArea").innerHTML='<div class="sample-placeholder"><strong>Loading waveform�</strong><span>Fetching the selected signal from the backend.</span></div>';
+Line 176: $("sampleArea").innerHTML='<div class="sample-placeholder"><strong>Sample unavailable</strong><span>The backend did not return a waveform for this selection.</span></div>';
+Line 181: $("refresh").disabled=true;
+Line 197: $("lastUpdated").textContent=any?`Loaded ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"Not loaded";
+Line 199: finally{$("refresh").disabled=false}
+Line 202: $("refresh").addEventListener("click",load);
+Line 203: $("loadSample").addEventListener("click",loadSample);
+Line 204: $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").classList.add("show")});
+Line 205: $("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").classList.remove("show")});
+Line 206: $("logout").addEventListener("click",async()=>{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});location.href="/"});
+
+
+==========================================================================================
+13. DASHBOARD HTML ELEMENT IDS
+==========================================================================================
+
+FILE: .\frontend\AMCShield_All_In_One\dashboard.html
+Line 17: <aside class="sidebar" id="sidebar">
+Line 56: <strong id="apiStatusText">Checking API</strong>
+Line 57: <small id="apiStatusDetail">Connecting�</small>
+Line 60: <button class="side-action" id="logoutButton" type="button">? <span>Logout</span></button>
+Line 64: <div class="mobile-overlay" id="mobileOverlay"></div>
+Line 69: <button class="icon-btn menu-btn" id="menuButton" aria-label="Open navigation">?</button>
+Line 79: <strong id="lastUpdated">�</strong>
+Line 81: <button class="refresh-btn" id="refreshButton" type="button">
+Line 82: <span id="refreshIcon">?</span> Refresh
+Line 87: <strong id="userName">User</strong>
+Line 88: <small id="userRole">AMCShield Console</small>
+Line 120: <span class="data-source" id="dataSource">Backend data</span>
+Line 123: <section class="metric-grid" id="metricGrid" aria-live="polite">
+Line 127: <div class="metric-value skeleton" id="metricClasses">�</div>
+Line 128: <div class="metric-sub" id="metricClassesSub">Waiting for API</div>
+Line 133: <div class="metric-value skeleton" id="metricSamples">�</div>
+Line 134: <div class="metric-sub" id="metricSamplesSub">Waiting for API</div>
+Line 139: <div class="metric-value skeleton" id="metricSnr">�</div>
+Line 140: <div class="metric-sub" id="metricSnrSub">Waiting for API</div>
+Line 145: <div class="metric-value skeleton" id="metricAttacks">�</div>
+Line 146: <div class="metric-sub" id="metricAttacksSub">Waiting for API</div>
+Line 157: <div class="legend" id="performanceLegend">
+Line 163: <div class="chart-loading" id="performanceLoading">Waiting for backend data�</div>
+Line 164: <svg id="performanceChart" class="chart" role="img" aria-label="Clean accuracy versus SNR"></svg>
+Line 174: <select id="attackSelect" class="select" aria-label="Select attack method">
+Line 179: <div class="chart-loading" id="attackLoading">Waiting for backend data�</div>
+Line 180: <svg id="attackChart" class="chart" role="img" aria-label="Attack success rate versus SNR"></svg>
+Line 194: <div class="heatmap-wrap" id="heatmapWrap">
+Line 216: <tbody id="comparisonBody">
+Line 230: <select id="snrSelect" class="select" aria-label="Select SNR level">
+Line 234: <div class="snr-content" id="snrContent">
+Line 247: <div id="recentUpdates" class="updates-list">
+Line 275: <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+
+==========================================================================================
+14. DASHBOARD JAVASCRIPT ELEMENT REFERENCES
+==========================================================================================
+
+FILE: .\frontend\AMCShield_All_In_One\dashboard.js
+Line 23: const $ = (id) => document.getElementById(id);
+Line 26: sidebar: $("sidebar"),
+Line 27: overlay: $("mobileOverlay"),
+Line 28: menu: $("menuButton"),
+Line 29: refresh: $("refreshButton"),
+Line 30: refreshIcon: $("refreshIcon"),
+Line 32: apiStatusText: $("apiStatusText"),
+Line 33: apiStatusDetail: $("apiStatusDetail"),
+Line 34: lastUpdated: $("lastUpdated"),
+Line 35: classes: $("metricClasses"),
+Line 36: classesSub: $("metricClassesSub"),
+Line 37: samples: $("metricSamples"),
+Line 38: samplesSub: $("metricSamplesSub"),
+Line 39: snr: $("metricSnr"),
+Line 40: snrSub: $("metricSnrSub"),
+Line 41: attacks: $("metricAttacks"),
+Line 42: attacksSub: $("metricAttacksSub"),
+Line 43: performance: $("performanceChart"),
+Line 44: performanceLoading: $("performanceLoading"),
+Line 45: attack: $("attackChart"),
+Line 46: attackLoading: $("attackLoading"),
+Line 47: attackSelect: $("attackSelect"),
+Line 48: heatmap: $("heatmapWrap"),
+Line 49: comparison: $("comparisonBody"),
+Line 50: snrSelect: $("snrSelect"),
+Line 51: snrContent: $("snrContent"),
+Line 52: updates: $("recentUpdates"),
+Line 53: toast: $("toast"),
+Line 54: userName: $("userName"),
+Line 55: userRole: $("userRole")
+Line 1047: $("logoutButton").addEventListener("click", async () => {
+
+
+==========================================================================================
+15. AUTHENTICATION IMPLEMENTATION
+==========================================================================================
+
+
+FILE: .\backend\dependencies.py
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy.orm import Session
+
+from .database.db import get_db
+from .database.models import User, UserRole, UserStatus
+
+
+def _db_user_from_session(request: Request, db: Session) -> User | None:
+    session_user = request.session.get("user")
+    if not session_user:
+        return None
+
+    if session_user.get("id") == "local-admin":
+        return None
+
+    provider = session_user.get("provider")
+    user_id = session_user.get("id")
+
+    if provider not in {"local", "github"} or not isinstance(user_id, int):
+        return None
+
+    user = db.get(User, user_id)
+    if not user or user.status != UserStatus.ACTIVE.value:
+        return None
+
+    return user
+
+
+def is_admin_role(user: dict | None) -> bool:
+    if not user:
+        return False
+    role = str(
+        user.get("role_key") or user.get("role") or ""
+    ).strip().lower()
+    return role in {"admin", "administrator"}
+
+
+def is_admin_session(request: Request, db: Session) -> bool:
+    session_user = request.session.get("user")
+    if not session_user or not is_admin_role(session_user):
+        return False
+
+    if session_user.get("id") == "local-admin":
+        return True
+
+    if session_user.get("provider") != "local" or not isinstance(
+        session_user.get("id"), int
+    ):
+        return False
+
+    user = db.get(User, session_user["id"])
+    return bool(
+        user
+        and user.status == UserStatus.ACTIVE.value
+        and user.role == UserRole.ADMIN.value
+    )
+
+
+def require_authenticated(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict:
+    session_user = request.session.get("user")
+    if not session_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+        )
+
+    if (
+        session_user.get("provider") == "local"
+        and session_user.get("id") == "local-admin"
+    ):
+        return session_user
+
+    db_user = _db_user_from_session(request, db)
+    if not db_user:
+        # Remove a stale/disabled session so it cannot be reused.
+        request.session.clear()
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+        )
+
+    # Rebuild authorization fields from the database on every protected request.
+    # This prevents stale/tampered session role data from granting privileges.
+    session_user["id"] = db_user.id
+    session_user["name"] = db_user.name
+    session_user["email"] = db_user.email
+    session_user["role_key"] = db_user.role
+    session_user["role"] = (
+        "Administrator"
+        if db_user.role == UserRole.ADMIN.value
+        else "User"
+    )
+    return session_user
+
+
+def require_admin(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict:
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+        )
+
+    if not is_admin_session(request, db):
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator access required.",
+        )
+
+    return user
+
+
+
+FILE: .\backend\routers\auth.py
+from __future__ import annotations
+
+import secrets
+from urllib.parse import urlencode
+from time import time
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
+
+from pydantic import BaseModel, EmailStr
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..database.db import get_db
+from ..database.models import (
+    AccessRequest,
+    AccessRequestStatus,
+    User,
+    UserRole,
+    UserStatus,
+    utcnow,
+)
+from ..services.security_service import (
+    check_login_rate_limit,
+    clear_login_failures,
+    get_csrf_token,
+    hash_password,
+    require_csrf,
+    record_login_failure,
+    verify_password,
+)
+
+from ..config import settings
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_USER_URL = "https://api.github.com/user"
+GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
+
+
+class LoginRequest(BaseModel):
+    identity: str
+    password: str
+
+
+class ContactAdminRequest(BaseModel):
+    name: str
+    email: EmailStr
+    subject: str
+    message: str
+
+
+@router.post("/contact-admin", dependencies=[Depends(require_csrf)])
+def contact_admin(
+    payload: ContactAdminRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    name = payload.name.strip()
+    email = str(payload.email).strip().lower()
+    subject = payload.subject.strip()
+    message = payload.message.strip()
+
+    if not name or len(name) > 120:
+        raise HTTPException(
+            status_code=422,
+            detail="Name must contain 1 to 120 characters.",
+        )
+
+    if not subject or len(subject) > 200:
+        raise HTTPException(
+            status_code=422,
+            detail="Subject must contain 1 to 200 characters.",
+        )
+
+    if not message or len(message) > 5000:
+        raise HTTPException(
+            status_code=422,
+            detail="Message must contain 1 to 5000 characters.",
+        )
+
+    # Avoid duplicate active requests from the same email.
+    existing = db.scalar(
+        select(AccessRequest).where(
+            AccessRequest.email == email,
+            AccessRequest.status.in_(
+                [
+                    AccessRequestStatus.NEW.value,
+                    AccessRequestStatus.READ.value,
+                ]
+            ),
+        )
+    )
+
+    if existing:
+        return {
+            "success": True,
+            "message": (
+                "Your message has been submitted "
+                "to the AMCShield administrator."
+            ),
+            "message_id": existing.id,
+        }
+
+    client_ip = (
+        request.client.host
+        if request.client
+        else None
+    )
+
+    access_request = AccessRequest(
+        name=name,
+        email=email,
+        subject=subject,
+        message=message,
+        status=AccessRequestStatus.NEW.value,
+        ip_address=client_ip,
+    )
+
+    db.add(access_request)
+    db.commit()
+    db.refresh(access_request)
+
+    return {
+        "success": True,
+        "message": (
+            "Your message has been submitted "
+            "to the AMCShield administrator."
+        ),
+        "message_id": access_request.id,
+    }
+
+
+def _frontend_url() -> str:
+    return "/"
+
+
+def _session_user(request: Request):
+    return request.session.get("user")
+
+
+@router.get("/github/login")
+async def github_login(request: Request):
+    """Start GitHub OAuth authorization."""
+    if not settings.github_client_id or not settings.github_client_secret:
+        return RedirectResponse(
+            url="/?auth_error=github_not_configured",
+            status_code=302,
+        )
+
+    state = secrets.token_urlsafe(32)
+    request.session["github_oauth_state"] = state
+    request.session["github_oauth_state_created_at"] = int(time())
+
+    params = {
+        "client_id": settings.github_client_id,
+        "redirect_uri": settings.github_redirect_uri,
+        "scope": settings.github_scope,
+        "state": state,
+        "allow_signup": "true",
+    }
+    return RedirectResponse(
+        url=f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}",
+        status_code=302,
+    )
+
+
+@router.get("/github/callback")
+async def github_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Complete GitHub OAuth only for an existing active AMCShield account."""
+    expected_state = request.session.pop("github_oauth_state", None)
+    state_created_at = request.session.pop(
+        "github_oauth_state_created_at",
+        None,
+    )
+
+    state_is_fresh = False
+    if isinstance(state_created_at, int):
+        state_is_fresh = (
+            0 <= time() - state_created_at
+            <= settings.github_state_max_age
+        )
+
+    if (
+        not code
+        or not state
+        or not expected_state
+        or not state_is_fresh
+        or not secrets.compare_digest(state, expected_state)
+    ):
+        return RedirectResponse(
+            url="/?auth_error=invalid_oauth_state",
+            status_code=302,
+        )
+
+    if not settings.github_client_id or not settings.github_client_secret:
+        return RedirectResponse(
+            url="/?auth_error=github_not_configured",
+            status_code=302,
+        )
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=15.0,
+            follow_redirects=False,
+        ) as client:
+            token_response = await client.post(
+                GITHUB_TOKEN_URL,
+                data={
+                    "client_id": settings.github_client_id,
+                    "client_secret": settings.github_client_secret,
+                    "code": code,
+                    "redirect_uri": settings.github_redirect_uri,
+                },
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "AMCShield",
+                },
+            )
+            token_response.raise_for_status()
+            token_data = token_response.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                raise RuntimeError("GitHub did not return an access token.")
+
+            github_headers = {
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "AMCShield",
+            }
+
+            user_response = await client.get(
+                GITHUB_USER_URL,
+                headers=github_headers,
+            )
+            user_response.raise_for_status()
+            github_user = user_response.json()
+
+            # Always consult GitHub's email endpoint and require a verified
+            # email. The public profile email alone is not sufficient.
+            email_response = await client.get(
+                GITHUB_EMAILS_URL,
+                headers=github_headers,
+            )
+            email_response.raise_for_status()
+            emails = email_response.json()
+
+            verified_emails = [
+                item
+                for item in emails
+                if item.get("verified") and item.get("email")
+            ]
+            primary_verified = next(
+                (
+                    item
+                    for item in verified_emails
+                    if item.get("primary")
+                ),
+                None,
+            )
+            selected_email = (
+                primary_verified or
+                (verified_emails[0] if verified_emails else None)
+            )
+
+        if not selected_email:
+            return RedirectResponse(
+                url="/?auth_error=github_email_unverified",
+                status_code=302,
+            )
+
+        email = str(selected_email["email"]).strip().lower()
+        db_user = db.scalar(
+            select(User).where(User.email == email)
+        )
+
+        # GitHub authentication does not itself authorize AMCShield access.
+        if not db_user:
+            return RedirectResponse(
+                url="/?auth_error=github_account_not_authorized",
+                status_code=302,
+            )
+
+        if db_user.status != UserStatus.ACTIVE.value:
+            return RedirectResponse(
+                url="/?auth_error=github_account_not_active",
+                status_code=302,
+            )
+
+        db_user.last_login_at = utcnow()
+        db.commit()
+
+        session_user = {
+            "provider": "github",
+            "id": db_user.id,
+            "github_id": github_user.get("id"),
+            "login": github_user.get("login"),
+            "name": db_user.name,
+            "email": db_user.email,
+            "avatar_url": github_user.get("avatar_url"),
+            # These values are derived from the DB record, not GitHub/client input.
+            "role": (
+                "Administrator"
+                if db_user.role == UserRole.ADMIN.value
+                else "User"
+            ),
+            "role_key": db_user.role,
+        }
+
+        # Replace any pre-authentication session state to prevent fixation.
+        _start_session(request, session_user)
+
+        return RedirectResponse(
+            url="/dashboard.html",
+            status_code=302,
+        )
+
+    except Exception as exc:
+        # Do not expose provider secrets or raw upstream responses.
+        print(f"GitHub OAuth error: {type(exc).__name__}")
+        return RedirectResponse(
+            url="/?auth_error=github_auth_failed",
+            status_code=302,
+        )
+
+
+_DUMMY_HASH = hash_password("Timing-Dummy-Password-1!")
+
+_ROLE_LABELS = {
+    UserRole.ADMIN.value: "Administrator",
+    UserRole.USER.value: "User",
+}
+
+
+def _bootstrap_admin_matches(identity: str, password: str) -> bool:
+    if not settings.admin_password:
+        return False
+
+    identity_ok = identity in (
+        settings.admin_username.strip().lower(),
+        settings.admin_email.strip().lower(),
+    )
+
+    password_ok = secrets.compare_digest(
+        password.encode("utf-8"),
+        settings.admin_password.encode("utf-8"),
+    )
+
+    return identity_ok and password_ok
+
+
+def _start_session(request: Request, session_user: dict) -> None:
+    request.session.clear()
+    request.session["user"] = session_user
+
+
+@router.get("/csrf")
+def csrf(request: Request):
+    """Issue the per-session CSRF token used by state-changing API calls."""
+    return {"csrf_token": get_csrf_token(request)}
+
+
+@router.post("/login")
+def login(
+    payload: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Login for:
+    1. Bootstrap administrator from .env
+    2. Activated database users
+    """
+
+    identity = payload.identity.strip().lower()
+    client_ip = request.client.host if request.client else None
+
+    # Check the same rate-limit bucket before doing password work.
+    retry_after = check_login_rate_limit(db, identity, client_ip)
+    if retry_after:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed login attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    # ---------------------------------------------------------
+    # 1. Bootstrap administrator
+    # ---------------------------------------------------------
+
+    if _bootstrap_admin_matches(identity, payload.password):
+        clear_login_failures(db, identity, client_ip)
+
+        session_user = {
+            "provider": "local",
+            "id": "local-admin",
+            "login": settings.admin_username,
+            "name": settings.admin_username,
+            "email": settings.admin_email,
+            "avatar_url": None,
+            "role": "Administrator",
+            "role_key": "admin",
+        }
+
+        _start_session(request, session_user)
+
+        return {
+            "success": True,
+            "user": session_user,
+        }
+
+    # ---------------------------------------------------------
+    # 2. Database-backed invited user
+    # ---------------------------------------------------------
+
+    user = db.scalar(
+        select(User).where(User.email == identity)
+    )
+
+    # Do a dummy Argon2 verification so nonexistent-user
+    # responses don't have an obvious timing difference.
+
+    if user is None:
+        verify_password(
+            _DUMMY_HASH,
+            payload.password,
+        )
+        retry_after = record_login_failure(db, identity, client_ip)
+        headers = {"Retry-After": str(retry_after)} if retry_after else None
+        raise HTTPException(
+            status_code=429 if retry_after else 401,
+            detail=(
+                "Too many failed login attempts. Please try again later."
+                if retry_after
+                else "Invalid username/email or password."
+            ),
+            headers=headers,
+        )
+
+    # ---------------------------------------------------------
+    # 3. Pending invitation
+    # ---------------------------------------------------------
+
+    if user.status != UserStatus.ACTIVE.value:
+        retry_after = record_login_failure(db, identity, client_ip)
+        headers = {"Retry-After": str(retry_after)} if retry_after else None
+        raise HTTPException(
+            status_code=429 if retry_after else 401,
+            detail=(
+                "Too many failed login attempts. Please try again later."
+                if retry_after
+                else "Invalid username/email or password."
+            ),
+            headers=headers,
+        )
+
+    # ---------------------------------------------------------
+    # 5. Verify Argon2 password
+    # ---------------------------------------------------------
+
+    if (
+        not user.password_hash
+        or not verify_password(
+            user.password_hash,
+            payload.password,
+        )
+    ):
+        retry_after = record_login_failure(db, identity, client_ip)
+        headers = {"Retry-After": str(retry_after)} if retry_after else None
+        raise HTTPException(
+            status_code=429 if retry_after else 401,
+            detail=(
+                "Too many failed login attempts. Please try again later."
+                if retry_after
+                else "Invalid username/email or password."
+            ),
+            headers=headers,
+        )
+
+    # ---------------------------------------------------------
+    # 6. Update last login
+    # ---------------------------------------------------------
+
+    user.last_login_at = utcnow()
+    db.commit()
+    clear_login_failures(db, identity, client_ip)
+
+    # ---------------------------------------------------------
+    # 7. Create session
+    # ---------------------------------------------------------
+
+    session_user = {
+        "provider": "local",
+        "id": user.id,
+        "login": user.email,
+        "name": user.name,
+        "email": user.email,
+        "avatar_url": None,
+        "role": _ROLE_LABELS.get(
+            user.role,
+            "User",
+        ),
+        "role_key": user.role,
+    }
+
+    _start_session(
+        request,
+        session_user,
+    )
+
+    return {
+        "success": True,
+        "user": session_user,
+    }
+
+
+@router.get("/me")
+async def me(request: Request):
+    user = _session_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"authenticated": True, "user": user}
+
+
+@router.post("/logout", dependencies=[Depends(require_csrf)])
+async def logout(request: Request):
+    request.session.clear()
+    return {"success": True}
+
+
+FILE: .\frontend\AMCShield_All_In_One\security.js
+/*
+ * AMCShield frontend security helper.
+ *
+ * All authenticated state-changing requests should use amcFetch().
+ * Login remains intentionally exempt because the backend login route
+ * does not require a CSRF token.
+ */
+(function () {
+  let csrfToken = null;
+  let csrfPromise = null;
+
+  async function fetchCsrfToken(forceRefresh = false) {
+    if (csrfToken && !forceRefresh) {
+      return csrfToken;
+    }
+
+    if (csrfPromise && !forceRefresh) {
+      return csrfPromise;
+    }
+
+    csrfPromise = fetch("/api/auth/csrf", {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        "Accept": "application/json"
+      },
+      cache: "no-store"
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`CSRF token request failed (${response.status})`);
+        }
+
+        const body = await response.json();
+
+        if (!body || typeof body.csrf_token !== "string" || !body.csrf_token) {
+          throw new Error("CSRF token was not returned by the server.");
+        }
+
+        csrfToken = body.csrf_token;
+        return csrfToken;
+      })
+      .finally(() => {
+        csrfPromise = null;
+      });
+
+    return csrfPromise;
+  }
+
+  async function amcFetch(url, options = {}) {
+    const requestOptions = { ...options };
+    const method = String(requestOptions.method || "GET").toUpperCase();
+
+    requestOptions.credentials = requestOptions.credentials || "include";
+    requestOptions.headers = new Headers(requestOptions.headers || {});
+
+    requestOptions.headers.set("Accept", "application/json");
+
+    const stateChanging =
+      !["GET", "HEAD", "OPTIONS"].includes(method);
+
+    if (stateChanging) {
+      let token = await fetchCsrfToken();
+
+      requestOptions.headers.set("X-CSRF-Token", token);
+
+      let response = await fetch(url, requestOptions);
+
+      // If the session/token changed, refresh once and retry.
+      if (response.status === 403) {
+        try {
+          token = await fetchCsrfToken(true);
+          requestOptions.headers.set("X-CSRF-Token", token);
+          response = await fetch(url, requestOptions);
+        } catch (_) {
+          // Preserve the original 403 when refresh itself fails.
+        }
+      }
+
+      return response;
+    }
+
+    return fetch(url, requestOptions);
+  }
+
+  window.AMCShieldSecurity = Object.freeze({
+    getCsrfToken: fetchCsrfToken,
+    fetch: amcFetch
+  });
+})();
+
+
+
+FILE: .\frontend\AMCShield_All_In_One\auth.js
+[FILE NOT FOUND]
+
+
+==========================================================================================
+16. FRONTEND AUTHENTICATION REFERENCES
+==========================================================================================
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\about.js | Line 38: $("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js | Line 105: const response = await fetch("/api/auth/csrf", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js | Line 107: credentials: "same-origin",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js | Line 143: credentials: "same-origin",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js | Line 1223: "/api/auth/me"
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js | Line 1400: if ($("logoutBtn")) {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js | Line 1402: $("logoutBtn").onclick =
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js | Line 1408: "/api/auth/logout",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js | Line 98: $("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\auth-guard.js | Line 3: const response = await fetch("/api/auth/me", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\auth-guard.js | Line 5: credentials: "include"
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js | Line 1047: $("logoutButton").addEventListener("click", async () => {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js | Line 1049: await window.AMCShieldSecurity.fetch(
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js | Line 1050: "/api/auth/logout",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js | Line 1053: credentials: "include"
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js | Line 1063: const response = await fetch("/api/auth/me", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js | Line 1067: credentials: "include"
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dataset.js | Line 206: $("logout").addEventListener("click",async()=>{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});location.href="/"});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\evaluation-results.js | Line 113: $("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js | Line 124: const response = await fetch("/api/auth/csrf", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js | Line 126: credentials: "same-origin",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js | Line 159: credentials: "same-origin",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js | Line 273: const response = await AMCShieldSecurity.fetch(COMPLETE_URL, {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js | Line 275: credentials: "same-origin",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js | Line 16: const AUTH_ENDPOINT = "/api/auth/login";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js | Line 96: credentials: "include",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js | Line 129: window.location.href = "/api/auth/github/login";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js | Line 262: const response = await AMCShieldSecurity.fetch("/api/auth/contact-admin",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js | Line 895: fetch("/api/health", { credentials: "include" })
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js | Line 937: document.getElementById("logoutButton")?.addEventListener("click", () => {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js | Line 938: fetch("/api/auth/logout", { method: "POST", credentials: "include" })
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js | Line 137: $("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\nav-admin.js | Line 7: const response = await fetch("/api/auth/me", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\nav-admin.js | Line 8: credentials: "include"
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\reports.js | Line 51: $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").classList.add("show")});$("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").classList.remove("show")});$("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js | Line 21: csrfPromise = fetch("/api/auth/csrf", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js | Line 23: credentials: "include",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js | Line 86: window.AMCShieldSecurity = Object.freeze({
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\visualization.js | Line 33: $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").classList.add("show")});$("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").classList.remove("show")});$("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();
+
+
+==========================================================================================
+17. OTHER FRONTEND PAGE INVENTORY
+==========================================================================================
+
+PAGE: evaluation-results
+html : PASS
+css : PASS
+js : PASS
+
+PAGE: adversarial-attacks
+html : PASS
+css : PASS
+js : PASS
+
+PAGE: model-training
+html : PASS
+css : PASS
+js : PASS
+
+PAGE: reports
+html : PASS
+css : PASS
+js : PASS
+
+PAGE: visualization
+html : PASS
+css : PASS
+js : PASS
+
+PAGE: metrics-reference
+html : PASS
+css : PASS
+js : PASS
+
+
+==========================================================================================
+18. BACKEND SERVICE INVENTORY
+==========================================================================================
+
+Name                Length LastWriteTime      
+----                ------ -------------      
+dataset_service.py     521 01-10-2026 00:06:59
+email_service.py      6904 01-10-2026 00:07:00
+results_service.py   17837 17-11-2026 21:56:16
+security_service.py  11749 01-10-2026 00:07:00
+training_service.py   1011 01-10-2026 00:06:59
+__init__.py              0 01-10-2026 00:07:00
+
+
+
+
+
+==========================================================================================
+19. ROOT FRONTEND VS ACTIVE FRONTEND
+==========================================================================================
+index.html : IDENTICAL
+dashboard.html : DIFFERENT
+dashboard.js : DIFFERENT
+dashboard.css : IDENTICAL
+dataset.html : DIFFERENT
+dataset.js : IDENTICAL
+dataset.css : IDENTICAL
+evaluation-results.html : DIFFERENT
+evaluation-results.js : IDENTICAL
+adversarial-attacks.html : DIFFERENT
+adversarial-attacks.js : IDENTICAL
+model-training.html : DIFFERENT
+model-training.js : IDENTICAL
+
+
+==========================================================================================
+20. DATASET API IMPLEMENTATION CHECK
+==========================================================================================
+/metadata : FOUND
+/overview : FOUND
+/class-distribution : NOT FOUND
+/snr-distribution : NOT FOUND
+/splits : NOT FOUND
+/quality : NOT FOUND
+/sample : NOT FOUND
+
+
+==========================================================================================
+21. RESEARCH ARTIFACT INVENTORY
+==========================================================================================
+
+.\data
+
+FullName                                                                                   Length
+--------                                                                                   ------
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\amcshield_auth.db                     49152
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\processed\.gitkeep                        0
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\processed\test_indices.npy          1533672
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\processed\train_indices.npy         7156656
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\processed\val_indices.npy           1533672
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\.gitkeep                              0
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\classes-fixed.json                  246
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\classes-fixed.txt                  1632
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\classes.txt                         262
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\datasets.desktop                    172
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\GOLD_XYZ_OSC.0001_1024.hdf5 21449148312
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\GOLD_XYZ_OSC.0001_1024.zip  19347095843
+D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\LICENSE.TXT                       20993
+
+
+
+
+.\results
+
+FullName                                                                                          Length
+--------                                                                                          ------
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\admin_messages.json                         540
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\baseline_blackbox_results.csv               948
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\baseline_clean_results.csv                  323
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\baseline_cw_results.csv                    1684
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\baseline_fgsm_results.csv                   933
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\baseline_mim_results.csv                    922
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\baseline_pgd_results.csv                    911
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\blackbox_results.csv                       1717
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\blackbox_results_metadata.json              580
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\clean_results.csv                           929
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\cw_results.csv                             1723
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\fgsm_results.csv                           1318
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\generalization_gap.csv                     3973
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\generalization_gap.json                   19781
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\master_results.csv                         8418
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\master_results.json                       33164
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\metrics.json                                 66
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\mim_results.csv                            1314
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\pgd_results.csv                            1289
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\.gitkeep                                0
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\01_clean_accuracy_vs_snr.png       131094
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\02_adversarial_accuracy_vs_snr.png 149651
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\03_cw_accuracy_vs_snr.png          154332
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\04_attack_success_rate_vs_snr.png  274416
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\05_cw_mean_linf_vs_snr.png         178014
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\06_cw_max_linf_vs_snr.png          191843
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\07_cw_mean_l2_vs_snr.png           177353
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\08_cw_max_l2_vs_snr.png            176497
+D:\MediCaps University\7 SEM\Project 1\AMCShield\results\plots\09_generalization_gap_heatmap.png  337363
+
+
+
+
+.\checkpoints
+
+FullName                                                                                                Length
+--------                                                                                                ------
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\.gitkeep                                        0
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\baseline_best.pt                         13227348
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\baseline_best.pt.prev                    13227348
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\baseline_resume.pt                       13243844
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\baseline_resume.pt.prev                  13243844
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\robust_best.pt                           13226742
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\robust_best.pt.prev                      13226742
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\robust_resume.pt                         13241890
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\robust_resume.pt.prev                    13241826
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\smoke_test_baseline.pt                     722508
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\smoke_test_train_model.pt                 2157225
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\surrogate_best.pt                         1380297
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust\robust_best.pt                 3611398
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust\robust_epoch2_backup.pt        2157188
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust\surrogate_5k_budget.pt         1380297
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust\surrogate_best_OLD.pt          1380169
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust_weakPGD\robust_best.pt        13226742
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust_weakPGD\robust_best.pt.prev   13226742
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust_weakPGD\robust_resume.pt      13241890
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust_weakPGD\robust_resume.pt.prev 13241826
+
+
+
+
+.\src
+
+FullName                                                                                                              Length
+--------                                                                                                              ------
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\attacks.py                                                        14522
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\attacks.py.bak                                                    13379
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\attack_smoke_test.py                                               5722
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\check_first_1024.py                                                1484
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\data_loader.py                                                    11383
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\debug_predictions.py                                               1179
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\evaluate.py                                                       17765
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\export_results.py                                                  7293
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\master_results.py                                                 11594
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_baseline.py                                                  8299
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_robust.py                                                     626
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_surrogate.py                                                 7921
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\preprocess.py                                                     11513
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_baseline_attacks.py                                           23873
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_blackbox_snr.py                                               14336
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_clean_eval.py                                                  2489
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_cw_snr.py                                                     18238
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_fgsm_snr.py                                                    7178
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_generalization_heatmap.py                                      8192
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_mim_snr.py                                                     7372
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_pgd_eval.py                                                    4459
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_pgd_pilot.py                                                   4110
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_pgd_snr.py                                                     7098
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_robust_blackbox.py                                            19862
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_snr_eval.py                                                    4510
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\test_attack_patch.py                                               5953
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train.py                                                          30196
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_baseline.py                                                  3323
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_robust.py                                                    7252
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_robust.py.bak                                                7252
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_smoke_test.py                                                1281
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_surrogate.py                                                12656
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\utils.py                                                           2828
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__init__.py                                                           0
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\attacks.cpython-311.pyc                               21809
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\attack_smoke_test.cpython-311-pytest-9.2.0.pyc        11362
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\attack_smoke_test.cpython-311-pytest-9.2.0.pyc.25364     16
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\data_loader.cpython-311.pyc                           11568
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\evaluate.cpython-311.pyc                              25464
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\model_baseline.cpython-311.pyc                        11813
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\model_baseline.cpython-313.pyc                         5445
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\model_robust.cpython-311.pyc                           1338
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\model_surrogate.cpython-311.pyc                        9584
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\run_baseline_attacks.cpython-311.pyc                  25869
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\run_cw_snr.cpython-311.pyc                            18744
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\run_fgsm_snr.cpython-311.pyc                           7864
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\run_generalization_heatmap.cpython-311.pyc            13912
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\run_mim_snr.cpython-311.pyc                            8013
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\run_pgd_snr.cpython-311.pyc                            8075
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\run_robust_blackbox.cpython-311.pyc                   19840
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\test_attack_patch.cpython-311-pytest-9.2.0.pyc        15678
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\test_attack_patch.cpython-311-pytest-9.2.0.pyc.25364     16
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\test_attack_patch.cpython-311.pyc                     13510
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\train.cpython-311.pyc                                 25801
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\train_baseline.cpython-311.pyc                         4820
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\train_robust.cpython-311.pyc                           8371
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\train_smoke_test.cpython-311-pytest-9.2.0.pyc          2194
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\train_surrogate.cpython-311.pyc                       12836
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\utils.cpython-311.pyc                                  5023
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\__init__.cpython-311.pyc                                173
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\__pycache__\__init__.cpython-313.pyc                                161
+
+
+
+
+
+==========================================================================================
+22. AUDIT COMPLETION
+==========================================================================================
+Audit completed: 11/18/2026 03:36:51
+Source files modified: NO
+Research artifacts modified: NO
+Report generated: .\AMCShield_Master_Integration_Audit_20261118_033618.txt

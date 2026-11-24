@@ -1,0 +1,258 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261118045910
+Username: LAPTOP-8PSVU3CP\Mayank
+RunAs User: LAPTOP-8PSVU3CP\Mayank
+Configuration Name: 
+Machine: LAPTOP-8PSVU3CP (Microsoft Windows NT 10.0.26300.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -noexit -command try { . "c:\Users\Mayank\AppData\Local\Programs\Microsoft VS Code\69047191fc\resources\app\out\vs\workbench\contrib\terminal\common\scripts\shellIntegration.ps1" } catch {}
+Process ID: 26448
+PSVersion: 5.1.26100.9818
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9818
+BuildVersion: 10.0.26100.9818
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+========== 1. Environment ==========
+PowerShell: 5.1.26100.9818
+Python executable: D:\MediCaps University\7 SEM\Project 1\AMCShield\.venv\Scripts\python.exe
+Python 3.11.9
+Git available: True
+Node available: True
+
+========== 2. Git safety baseline ==========
+-- git status --short
+ M backend/config.py
+ M backend/database/models.py
+ M backend/main.py
+ M backend/requirements.txt
+ M backend/routers/admin.py
+ M backend/routers/admin_users.py
+ M backend/routers/attacks.py
+ M backend/routers/auth.py
+ M backend/routers/dashboard.py
+ M backend/routers/dataset.py
+ M backend/routers/evaluation.py
+ M backend/routers/invitations.py
+ M backend/routers/project.py
+ M backend/routers/reports.py
+ M backend/routers/training.py
+ M backend/routers/visualization.py
+ M backend/services/dataset_service.py
+ M backend/services/email_service.py
+ M backend/services/results_service.py
+ M backend/services/security_service.py
+ M backend/services/training_service.py
+ M configs/config.yaml
+ M frontend/AMCShield_All_In_One/about.html
+ M frontend/AMCShield_All_In_One/about.js
+ M frontend/AMCShield_All_In_One/admin.css
+ M frontend/AMCShield_All_In_One/admin.html
+ M frontend/AMCShield_All_In_One/admin.js
+ M frontend/AMCShield_All_In_One/adversarial-attacks.html
+ M frontend/AMCShield_All_In_One/adversarial-attacks.js
+ M frontend/AMCShield_All_In_One/dashboard.html
+ M frontend/AMCShield_All_In_One/dashboard.js
+ M frontend/AMCShield_All_In_One/dataset.html
+ M frontend/AMCShield_All_In_One/dataset.js
+ M frontend/AMCShield_All_In_One/evaluation-results.html
+ M frontend/AMCShield_All_In_One/evaluation-results.js
+ M frontend/AMCShield_All_In_One/index.html
+ M frontend/AMCShield_All_In_One/invite.html
+ M frontend/AMCShield_All_In_One/invite.js
+ M frontend/AMCShield_All_In_One/login.js
+ M frontend/AMCShield_All_In_One/model-training.html
+ M frontend/AMCShield_All_In_One/model-training.js
+ M frontend/AMCShield_All_In_One/reports.html
+ M frontend/AMCShield_All_In_One/reports.js
+ M frontend/AMCShield_All_In_One/visualization.html
+ M frontend/AMCShield_All_In_One/visualization.js
+ M results/baseline_blackbox_results.csv
+ M results/baseline_clean_results.csv
+ M results/baseline_cw_results.csv
+ M results/baseline_fgsm_results.csv
+ M results/baseline_mim_results.csv
+ M results/baseline_pgd_results.csv
+ M results/blackbox_results.csv
+ M results/generalization_gap.csv
+ M results/generalization_gap.json
+ M results/plots/09_generalization_gap_heatmap.png
+ M src/attacks.py
+ M src/data_loader.py
+ M src/run_pgd_snr.py
+ M src/train.py
+ M src/train_robust.py
+?? AMCShield_Master_Integration_Audit_20261118_033618.txt
+?? AMCShield_Master_Validation.ps1
+?? AMCShield_Model_Training_Master_Audit.ps1
+?? AMCShield_validation_report.txt
+?? SECURITY.md
+?? SECURITY_AUDIT.md
+?? SECURITY_IMPLEMENTATION_STATUS.md
+?? backend.zip
+?? backend/config.py.bak
+?? backend/dependencies.py
+?? backend/routers/dashboard.pre_integration.bak
+?? backend/routers/evaluation.pre_integration.bak
+?? backend/routers/evaluation.py.bak
+?? backend/services/results_service.pre_integration.bak
+?? backend/services/results_service.py.bak
+?? backup_checkpoints.zip
+?? backup_checkpoints/
+?? backup_results.zip
+?? backup_results/
+?? backups/
+?? check_attack_strength.py
+?? check_sampling.py
+?? checkpoints.zip
+?? checkpoints/baseline_best.pt.prev
+?? checkpoints/baseline_resume.pt.prev
+?? checkpoints/old_robust/
+?? checkpoints/old_robust_weakPGD/
+?? checkpoints/robust_best.pt.prev
+?? checkpoints/robust_resume.pt.prev
+?? configs.zip
+?? data.zip
+?? evaluate_metrics.py
+?? evaluate_unified.py
+?? evaluate_unified_backup.py
+?? frontend.zip
+?? frontend/AMCShield_All_In_One/SECURITY_UPDATE_MANIFEST.json
+?? frontend/AMCShield_All_In_One/dashboard.js.bak
+?? frontend/AMCShield_All_In_One/dashboard.pre_data_fix.bak
+?? frontend/AMCShield_All_In_One/metrics-reference.css
+?? frontend/AMCShield_All_In_One/metrics-reference.html
+?? frontend/AMCShield_All_In_One/metrics-reference.js
+?? frontend/AMCShield_All_In_One/nav-admin.css
+?? frontend/AMCShield_All_In_One/nav-admin.js
+?? frontend/AMCShield_All_In_One/security.js
+?? frontend/README.md
+?? frontend/SECURITY_UPDATE_MANIFEST.json
+?? frontend/about.css
+?? frontend/about.html
+?? frontend/about.js
+?? frontend/admin.css
+?? frontend/admin.html
+?? frontend/admin.js
+?? frontend/adversarial-attacks.css
+?? frontend/adversarial-attacks.html
+?? frontend/adversarial-attacks.js
+?? frontend/assets/
+?? frontend/auth-guard.js
+?? frontend/dashboard.css
+?? frontend/dashboard.html
+?? frontend/dashboard.js
+?? frontend/dataset.css
+?? frontend/dataset.html
+?? frontend/dataset.js
+?? frontend/evaluation-results.css
+?? frontend/evaluation-results.html
+?? frontend/evaluation-results.js
+?? frontend/index.html
+?? frontend/invite.css
+?? frontend/invite.html
+?? frontend/invite.js
+?? frontend/login.css
+?? frontend/login.js
+?? frontend/model-training.css
+?? frontend/model-training.html
+?? frontend/model-training.js
+?? frontend/nav-admin.css
+?? frontend/nav-admin.js
+?? frontend/pages.json
+?? frontend/reports.css
+?? frontend/reports.html
+?? frontend/reports.js
+?? frontend/security.js
+?? frontend/visualization.css
+?? frontend/visualization.html
+?? frontend/visualization.js
+?? logs.zip
+?? logs/
+?? metrics_core.py
+?? notebooks.zip
+?? quick_check.py
+?? report.zip
+?? reports/
+?? results.zip
+?? results/admin_messages.json
+?? src.zip
+?? src/attacks.py.bak
+?? src/test_attack_patch.py
+?? src/train_robust.py.bak
+?? start_training.bat
+?? test_metrics_core.py
+?? training.log
+-- git diff --check
+PS>TerminatingError(git.exe): "The running command stopped because the preference variable "ErrorActionPreference" or common parameter is set to Stop: warning: in the working copy of 'backend/config.py', LF will be replaced by CRLF the next time Git touches it"
+>> TerminatingError(git.exe): "The running command stopped because the preference variable "ErrorActionPreference" or common parameter is set to Stop: warning: in the working copy of 'backend/config.py', LF will be replaced by CRLF the next time Git touches it"
+CHECK ERROR: warning: in the working copy of 'backend/config.py', LF will be replaced by CRLF the next time Git touches it
+
+========== 3. Important file inventory ==========
+FOUND  backend\main.py (8330 bytes; modified 01-10-2026 00:06:58)
+FOUND  backend\config.py (3309 bytes; modified 01-10-2026 00:06:57)
+FOUND  backend\dependencies.py (3142 bytes; modified 01-10-2026 00:06:57)
+FOUND  backend\services\security_service.py (11749 bytes; modified 01-10-2026 00:07:00)
+FOUND  backend\routers\training.py (673 bytes; modified 01-10-2026 00:06:59)
+FOUND  backend\services\training_service.py (1011 bytes; modified 01-10-2026 00:06:59)
+FOUND  src\train.py (30196 bytes; modified 03-10-2026 16:25:22)
+FOUND  src\train_baseline.py (3323 bytes; modified 27-09-2026 01:06:45)
+FOUND  src\train_robust.py (7252 bytes; modified 10-11-2026 18:00:02)
+FOUND  configs\config.yaml (3104 bytes; modified 14-11-2026 19:09:04)
+FOUND  frontend\AMCShield_All_In_One\model-training.html (8071 bytes; modified 17-11-2026 13:32:59)
+FOUND  frontend\AMCShield_All_In_One\model-training.js (9550 bytes; modified 01-10-2026 00:05:39)
+FOUND  frontend\AMCShield_All_In_One\security.js (2399 bytes; modified 01-10-2026 00:05:41)
+FOUND  frontend\AMCShield_All_In_One\auth-guard.js (454 bytes; modified 01-10-2026 00:05:40)
+
+========== 4. Python syntax validation (AST only; no imports/training) ==========
+Python files checked: 59
+Syntax errors: 0
+RESULT: Python syntax check PASSED.
+
+========== 5. Frontend JavaScript syntax validation ==========
+RESULT: JavaScript syntax check PASSED.
+
+========== 6. Training API and frontend security indicators ==========
+Backend route token overview: FOUND
+Backend route token status: FOUND
+Backend route token config: NOT FOUND - inspect manually
+Backend route token progress: NOT FOUND - inspect manually
+Backend route token history: NOT FOUND - inspect manually
+Backend route token models: NOT FOUND - inspect manually
+Backend route token checkpoints: FOUND
+Backend route token logs: NOT FOUND - inspect manually
+Backend route token start: NOT FOUND - inspect manually
+Backend route token stop: NOT FOUND - inspect manually
+Backend route token resume: NOT FOUND - inspect manually
+Frontend uses AMCShieldSecurity.fetch: True
+Frontend uses relative /api path: True
+Security wrapper defines AMCShieldSecurity: True
+Security wrapper includes X-CSRF-Token: True
+Training service contains process/lifecycle indicators: False
+Training service contains progress indicators: False
+
+========== 7. Dataset and checkpoint safety checks ==========
+HDF5 dataset present; size: 21,44,91,48,312 bytes. It was NOT opened.
+checkpoints directory present; file count: 20
+results directory present; file count: 29
+logs directory present; file count: 8
+data directory present; file count: 13
+No dataset, checkpoint, result, log, or database files were modified.
+
+========== 8. Optional tests ==========
+Pytest skipped. Re-run with -RunPytest only after reviewing test contents for training/data side effects.
+
+========== 9. Summary and next action ==========
+Audit completed: 2026-11-18T04:59:18.6506243+05:30
+Report: D:\MediCaps University\7 SEM\Project 1\AMCShield\reports\model_training_sprint_20261118_045910\AMCShield_Model_Training_Audit.txt
+Transcript: D:\MediCaps University\7 SEM\Project 1\AMCShield\reports\model_training_sprint_20261118_045910\execution_transcript.txt
+This script does not implement missing application features; it establishes a safe, evidence-based baseline.
+No model training was started.
+**********************
+Windows PowerShell transcript end
+End time: 20261118045918
+**********************

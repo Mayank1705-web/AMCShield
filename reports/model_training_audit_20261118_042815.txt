@@ -1,0 +1,1514 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261118042815
+Username: LAPTOP-8PSVU3CP\Mayank
+RunAs User: LAPTOP-8PSVU3CP\Mayank
+Configuration Name: 
+Machine: LAPTOP-8PSVU3CP (Microsoft Windows NT 10.0.26300.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -noexit -command try { . "c:\Users\Mayank\AppData\Local\Programs\Microsoft VS Code\69047191fc\resources\app\out\vs\workbench\contrib\terminal\common\scripts\shellIntegration.ps1" } catch {}
+Process ID: 23416
+PSVersion: 5.1.26100.9818
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9818
+BuildVersion: 10.0.26100.9818
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+AMCShield Model Training Audit
+Project: D:\MediCaps University\7 SEM\Project 1\AMCShield
+Date: 2026-11-18 04:28:15
+This audit does not modify project files.
+
+==============================================================================
+  1. GIT STATUS
+==============================================================================
+?? src/train_robust.py.bak
+?? start_training.bat
+?? test_metrics_core.py
+?? training.log
+
+Current branch:
+
+
+==============================================================================
+  2. BACKEND ROUTERS
+==============================================================================
+
+Name                           Length LastWriteTime
+----                           ------ -------------
+admin.py                        12287 01-10-2026 00:06:58
+admin_users.py                   4561 01-10-2026 00:06:58
+attacks.py                        544 01-10-2026 00:06:59
+auth.py                         15590 01-10-2026 00:06:58
+dashboard.pre_integration.bak     335 01-10-2026 00:06:58
+dashboard.py                     1180 17-11-2026 22:10:37
+dataset.py                       1561 18-11-2026 04:07:49
+evaluation.pre_integration.bak    540 01-10-2026 00:06:58
+evaluation.py                    1783 17-11-2026 21:59:41
+evaluation.py.bak                 540 01-10-2026 00:06:58
+invitations.py                  10001 01-10-2026 00:06:58
+project.py                        430 01-10-2026 00:06:59
+reports.py                        534 01-10-2026 00:06:58
+training.py                       673 01-10-2026 00:06:59
+visualization.py                  546 01-10-2026 00:06:58
+__init__.py                         0 01-10-2026 00:06:59
+
+
+
+==============================================================================
+  3. BACKEND SERVICES
+==============================================================================
+
+Name                                Length LastWriteTime
+----                                ------ -------------
+dataset_service.py                   12198 18-11-2026 04:06:30
+email_service.py                      6904 01-10-2026 00:07:00
+results_service.pre_integration.bak   1532 01-10-2026 00:07:00
+results_service.py                   17837 17-11-2026 21:56:16
+results_service.py.bak                1532 01-10-2026 00:07:00
+security_service.py                  11749 01-10-2026 00:07:00
+training_service.py                   1011 01-10-2026 00:06:59
+__init__.py                              0 01-10-2026 00:07:00
+
+
+
+==============================================================================
+  4. BACKEND TRAINING REFERENCES
+==============================================================================
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\config.py ---
+45: # Login protection
+46: login_max_attempts: int = 5
+47: login_lockout_minutes: int = 15
+48: login_attempt_window_minutes: int = 15
+102: if settings.login_max_attempts < 1:
+103: raise RuntimeError("LOGIN_MAX_ATTEMPTS must be at least 1.")
+104: if settings.login_lockout_minutes < 1:
+105: raise RuntimeError("LOGIN_LOCKOUT_MINUTES must be at least 1.")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\main.py ---
+117: # Keeping session-dependent CSRF logic out of this middleware
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\admin.py ---
+7: from fastapi import APIRouter, Depends, HTTPException, Request
+35: router = APIRouter(
+102: @router.get("/messages")
+155: @router.get("/messages/{message_id}")
+193: @router.post(
+319: login_url = (
+332: login_url=login_url,
+365: @router.post(
+449: @router.post(
+531: login_url = (
+544: login_url=login_url,
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\admin_users.py ---
+4: APIRouter,
+43: router = APIRouter(
+56: @router.post("/invite", dependencies=[Depends(require_csrf)])
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\attacks.py ---
+1: from fastapi import APIRouter, Depends
+6: router = APIRouter(
+13: @router.get("/overview")
+17: @router.get("/results")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\auth.py ---
+8: from fastapi import APIRouter, Depends, HTTPException, Request
+26: check_login_rate_limit,
+27: clear_login_failures,
+31: record_login_failure,
+37: router = APIRouter(prefix="/auth", tags=["Authentication"])
+39: GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+40: GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+45: class LoginRequest(BaseModel):
+57: @router.post("/contact-admin", dependencies=[Depends(require_csrf)])
+146: @router.get("/github/login")
+147: async def github_login(request: Request):
+172: @router.get("/github/callback")
+300: db_user.last_login_at = utcnow()
+307: "login": github_user.get("login"),
+367: @router.get("/csrf")
+373: @router.post("/login")
+374: def login(
+375: payload: LoginRequest,
+380: Login for:
+389: retry_after = check_login_rate_limit(db, identity, client_ip)
+393: detail="Too many failed login attempts. Please try again later.",
+402: clear_login_failures(db, identity, client_ip)
+407: "login": settings.admin_username,
+438: retry_after = record_login_failure(db, identity, client_ip)
+443: "Too many failed login attempts. Please try again later."
+455: retry_after = record_login_failure(db, identity, client_ip)
+460: "Too many failed login attempts. Please try again later."
+478: retry_after = record_login_failure(db, identity, client_ip)
+483: "Too many failed login attempts. Please try again later."
+491: # 6. Update last login
+494: user.last_login_at = utcnow()
+496: clear_login_failures(db, identity, client_ip)
+505: "login": user.email,
+527: @router.get("/me")
+535: @router.post("/logout", dependencies=[Depends(require_csrf)])
+536: async def logout(request: Request):
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\dashboard.py ---
+2: from fastapi import APIRouter, Depends
+9: router = APIRouter(
+18: @router.get("/summary")
+26: @router.get("/performance")
+34: @router.get("/attacks")
+42: @router.get("/generalization-gap")
+50: @router.get("/snr")
+58: @router.get("/recent-updates")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\dataset.py ---
+1: from fastapi import APIRouter, Depends, HTTPException, Query
+8: router = APIRouter(
+31: @router.get("/metadata")
+36: @router.get("/overview")
+41: @router.get("/class-distribution")
+46: @router.get("/snr-distribution")
+51: @router.get("/splits")
+56: @router.get("/quality")
+61: @router.get("/sample")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\evaluation.py ---
+1: from fastapi import APIRouter, Depends
+6: router = APIRouter(
+15: @router.get("/summary")
+23: @router.get("/artifacts")
+31: @router.get("/filters")
+39: @router.get("/comparison")
+47: @router.get("/attack-summary")
+55: @router.get("/results")
+71: @router.get("/accuracy-by-snr")
+79: @router.get("/generalization-gap")
+87: @router.get("/insights")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\invitations.py ---
+3: from fastapi import APIRouter, Depends, HTTPException
+24: router = APIRouter(
+100: @router.get("/validate")
+181: @router.post("/complete", dependencies=[Depends(require_csrf)])
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\project.py ---
+1: from fastapi import APIRouter, Depends
+5: router = APIRouter(
+11: @router.get("/overview")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\reports.py ---
+1: from fastapi import APIRouter, Depends
+6: router = APIRouter(
+13: @router.get("/summary")
+17: @router.get("/artifacts")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\training.py ---
+1: from fastapi import APIRouter, Depends
+6: router = APIRouter(
+13: @router.get("/overview")
+17: @router.get("/status")
+18: def status():
+21: @router.get("/checkpoints")
+22: def checkpoints():
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\visualization.py ---
+1: from fastapi import APIRouter, Depends
+6: router = APIRouter(
+13: @router.get("/summary")
+17: @router.get("/artifacts")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\services\dataset_service.py ---
+15: self.processed_dir = self.data_dir / "processed"
+21: "train": self.processed_dir / "train_indices.npy",
+22: "validation": self.processed_dir / "val_indices.npy",
+23: "test": self.processed_dir / "test_indices.npy",
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\services\email_service.py ---
+65: server.login(
+82: server.login(
+231: login_url: str,
+242: safe_login_url = html.escape(login_url, quote=True)
+252: Login email:
+262: {login_url}
+278: <p><strong>Login email:</strong><br>{safe_email}</p>
+289: <a href="{safe_login_url}" style="display:inline-block;padding:14px 24px;background:#f3c63f;color:#111;text-decoration:none;border-radius:8px;font-weight:bold;">
+290: LOG IN TO AMCShield
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\services\results_service.py ---
+102: def clean_mean(model: str) -> float | None:
+106: def sample_total(model: str) -> int:
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\services\security_service.py ---
+181: # Login rate limiting
+207: def _login_keys(
+235: Retrieve a login rate-limit record.
+237: from ..database.models import LoginAttempt
+240: select(LoginAttempt).where(
+241: LoginAttempt.key == key
+251: Reset an expired login-attempt window.
+266: minutes=settings.login_attempt_window_minutes
+277: def check_login_rate_limit(
+283: Check login rate limiting.
+291: 0       -> login may proceed
+299: for key in _login_keys(
+356: def record_login_failure(
+362: Record a failed login attempt in both the identity
+367: from ..database.models import LoginAttempt
+373: for key in _login_keys(
+383: row = LoginAttempt(
+404: >= settings.login_max_attempts
+409: minutes=settings.login_lockout_minutes
+437: def clear_login_failures(
+443: Clear both identity and IP login-failure buckets
+446: from ..database.models import LoginAttempt
+448: keys = _login_keys(
+454: delete(LoginAttempt).where(
+455: LoginAttempt.key.in_(keys)
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\services\training_service.py ---
+7: def __init__(self, checkpoints_dir: Path, src_dir: Path):
+11: def status(self) -> dict[str, Any]:
+
+==============================================================================
+  5. MAIN APP / CONFIGURATION
+==============================================================================
+
+--- .\backend\main.py ---
+from pathlib import Path
+import hmac
+import mimetypes
+
+from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy.orm import Session
+
+from .database.db import get_db, init_db
+from .config import settings
+from .dependencies import is_admin_session
+from .routers import (
+    admin,
+    admin_users,
+    attacks,
+    dashboard,
+    dataset,
+    evaluation,
+    invitations,
+    project,
+    reports,
+    training,
+    visualization,
+)
+from .routers.auth import router as auth_router
+
+
+# ============================================================
+# MIME TYPES
+# ============================================================
+
+mimetypes.add_type("text/css", ".css", strict=True)
+
+
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
+
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    description="FastAPI backend for the AMCShield research platform.",
+    docs_url="/docs" if settings.environment.strip().lower() != "production" else None,
+    redoc_url="/redoc" if settings.environment.strip().lower() != "production" else None,
+    openapi_url="/openapi.json" if settings.environment.strip().lower() != "production" else None,
+)
+
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+init_db()
+
+
+# ============================================================
+# SESSION MIDDLEWARE
+# ============================================================
+#
+# SessionMiddleware must be available before anything that
+# accesses request.session.
+#
+# We register it first because FastAPI/Starlette wraps later
+# middleware around earlier middleware.
+#
+# ============================================================
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    session_cookie="amcshield_session",
+    max_age=settings.session_max_age,
+    same_site="lax",
+    https_only=settings.session_https_only,
+)
+
+
+# ============================================================
+# CORS
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Content-Type",
+        "Accept",
+        "X-CSRF-Token",
+    ],
+)
+
+
+# ============================================================
+# SECURITY MIDDLEWARE
+# ============================================================
+#
+# IMPORTANT:
+#
+# This middleware does NOT access request.session.
+#
+# CSRF is handled by the dedicated /api/auth/csrf endpoint
+# and route-level validation in the authentication/security
+# layer.
+#
+# Keeping session-dependent CSRF logic out of this middleware
+# eliminates the SessionMiddleware ordering problem permanently.
+#
+# ============================================================
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    response = await call_next(request)
+
+    # --------------------------------------------------------
+    # Browser security headers
+    # --------------------------------------------------------
+
+    response.headers["X-Content-Type-Options"] = "nosniff"
+
+    response.headers["X-Frame-Options"] = "DENY"
+
+    response.headers["Referrer-Policy"] = (
+        "strict-origin-when-cross-origin"
+    )
+
+    response.headers["Permissions-Policy"] = (
+        "camera=(), "
+        "microphone=(), "
+        "geolocation=()"
+    )
+
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'; "
+        "manifest-src 'self'; "
+        "worker-src 'self' blob:;"
+    )
+
+    # --------------------------------------------------------
+    # HSTS
+    # --------------------------------------------------------
+
+    if settings.session_https_only:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+
+    # --------------------------------------------------------
+    # API cache control
+    # --------------------------------------------------------
+
+    if request.url.path.startswith(
+        f"{settings.api_prefix}/"
+    ) or request.url.path.endswith(".html") or request.url.path in {"/", "/admin"}:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+
+    return response
+
+
+... truncated (255 total lines)
+
+--- .\backend\config.py ---
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    app_name: str = "AMCShield API"
+    app_version: str = "1.0.0"
+    environment: str = "development"
+    api_prefix: str = "/api"
+
+    frontend_dir: Path = PROJECT_ROOT / "frontend" / "AMCShield_All_In_One"
+    src_dir: Path = PROJECT_ROOT / "src"
+    results_dir: Path = PROJECT_ROOT / "results"
+    checkpoints_dir: Path = PROJECT_ROOT / "checkpoints"
+    data_dir: Path = PROJECT_ROOT / "data"
+
+    allowed_origins: str = "http://127.0.0.1:8000,http://localhost:8000"
+
+    # Session cookie security
+    session_secret: str = ""
+    session_https_only: bool = False
+    session_max_age: int = 8 * 60 * 60
+
+    # GitHub OAuth
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    github_redirect_uri: str = "http://127.0.0.1:8000/api/auth/github/callback"
+    github_scope: str = "read:user user:email"
+    github_state_max_age: int = 600
+
+    # Local administrator
+    admin_username: str = "admin"
+    admin_email: str = "admin@amcshield.local"
+    admin_password: str = ""
+
+    # Account provisioning
+    app_base_url: str = "http://127.0.0.1:8000"
+    invitation_minutes: int = 60
+    password_reset_minutes: int = 30
+
+    # Login protection
+    login_max_attempts: int = 5
+    login_lockout_minutes: int = 15
+    login_attempt_window_minutes: int = 15
+
+    # SMTP
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_from_name: str = "AMCShield"
+
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [x.strip() for x in self.allowed_origins.split(",") if x.strip()]
+
+
+settings = Settings()
+
+if not settings.session_secret:
+    raise RuntimeError(
+        "SESSION_SECRET must be configured in .env or the environment."
+    )
+
+if len(settings.session_secret) < 32:
+    raise RuntimeError(
+        "SESSION_SECRET must contain at least 32 characters."
+    )
+
+if "*" in settings.cors_origins:
+    raise RuntimeError(
+        "Wildcard CORS origins are not allowed when credentials are enabled."
+    )
+
+if settings.environment.strip().lower() == "production":
+    if not settings.session_https_only:
+        raise RuntimeError(
+            "SESSION_HTTPS_ONLY must be true in production."
+        )
+    if not settings.app_base_url.lower().startswith("https://"):
+        raise RuntimeError(
+            "APP_BASE_URL must use HTTPS in production."
+        )
+    if not settings.github_redirect_uri.lower().startswith("https://"):
+        raise RuntimeError(
+            "GITHUB_REDIRECT_URI must use HTTPS in production."
+        )
+
+if settings.github_state_max_age < 60:
+    raise RuntimeError("GITHUB_STATE_MAX_AGE must be at least 60 seconds.")
+if settings.login_max_attempts < 1:
+    raise RuntimeError("LOGIN_MAX_ATTEMPTS must be at least 1.")
+if settings.login_lockout_minutes < 1:
+    raise RuntimeError("LOGIN_LOCKOUT_MINUTES must be at least 1.")
+if settings.session_max_age < 300:
+    raise RuntimeError("SESSION_MAX_AGE must be at least 300 seconds.")
+
+==============================================================================
+  6. FRONTEND TRAINING FILE INVENTORY
+==============================================================================
+
+Name                Length LastWriteTime
+----                ------ -------------
+model-training.css   11638 01-10-2026 00:05:40
+model-training.html   8071 17-11-2026 13:32:59
+model-training.js     9550 01-10-2026 00:05:39
+
+
+
+==============================================================================
+  7. MODEL TRAINING HTML STRUCTURE
+==============================================================================
+
+--- .\frontend\AMCShield_All_In_One\model-training.html ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#050807">
+  <title>AMCShield â€” Model Training</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="model-training.css">
+  <script src="auth-guard.js"></script>
+  <script src="security.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand"><img src="assets/amcshield-logo.png" alt="AMCShield"></div>
+    <nav class="side-nav">
+      <a class="nav-item" href="dashboard.html"><span>âŒ‚</span>Dashboard</a>
+      <a class="nav-item" href="dataset.html"><span>â—«</span>Dataset</a>
+      <a class="nav-item active" href="model-training.html"><span>â–£</span>Model Training</a>
+      <a class="nav-item" href="adversarial-attacks.html"><span>âŒ</span>Adversarial Attacks</a>
+      <a class="nav-item" href="evaluation-results.html"><span>â—’</span>Evaluation Results</a>
+      <a class="nav-item" href="visualization.html"><span>â–¥</span>Visualization</a>
+      <a class="nav-item" href="reports.html"><span>â–¤</span>Reports</a>
+      <a class="nav-item" href="metrics-reference.html"><span>âŠž</span>Metrics Reference</a>
+      <a class="nav-item" href="about.html"><span>â“˜</span>About Project</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="api-status" id="apiStatus"><i></i><div><strong id="apiText">Checking API</strong><small id="apiDetail">Connectingâ€¦</small></div></div>
+      <button class="logout" id="logout">â†ª &nbsp; Logout</button>
+    </div>
+  </aside>
+  <div class="overlay" id="overlay"></div>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title-area">
+        <button class="menu" id="menu">â˜°</button>
+        <div><div class="eyebrow">AMCSHIELD / MODEL LAB</div><h1>Model Training</h1></div>
+      </div>
+      <div class="top-actions">
+        <div class="source-status"><span>TRAINING ENGINE</span><strong id="engineStatus">Backend</strong></div>
+        <button class="refresh" id="refresh">â†» Refresh</button>
+        <div class="avatar">A</div>
+      </div>
+    </header>
+
+    <section class="training-hero">
+      <div class="hero-bg"></div><div class="hero-shade"></div>
+      <div class="hero-copy">
+        <div class="kicker"><b></b> ROBUST AI MODEL LAB / TRAINING CONTROL</div>
+        <h2>Build Models for the<br><strong>Signal Battlefield</strong></h2>
+        <p>Monitor training runs, compare model configurations, inspect convergence and track checkpoint status from a single secure research console.</p>
+        <div class="hero-tags"><span>BASELINE</span><span>ROBUST CNN</span><span>CHECKPOINTS</span><span>GPU</span></div>
+      </div>
+      <div class="run-state" id="runState"><span class="pulse"></span><div><strong id="runStateText">AWAITING STATUS</strong><small id="runStateDetail">Training backend</small></div></div>
+    </section>
+
+    <div class="section-head">
+      <div><span class="section-kicker">TRAINING OVERVIEW</span><h2>Mission Control</h2></div>
+      <span class="backend-note" id="updated">Not loaded</span>
+    </div>
+
+    <section class="metric-grid">
+      <article class="metric"><span class="metric-icon gold">â—ˆ</span><label>ACTIVE RUN</label><strong id="activeRun">â€”</strong><small id="activeRunDetail">Backend value</small></article>
+      <article class="metric"><span class="metric-icon cyan">â—«</span><label>EPOCH</label><strong id="epoch">â€”</strong><small id="epochDetail">Awaiting run</small></article>
+      <article class="metric"><span class="metric-icon green">â—Ž</span><label>TRAIN ACCURACY</label><strong id="trainAcc">â€”</strong><small id="trainLoss">Loss: â€”</small></article>
+      <article class="metric"><span class="metric-icon gold">â—‡</span><label>VALIDATION</label><strong id="valAcc">â€”</strong><small id="valLoss">Loss: â€”</small></article>
+      <article class="metric"><span class="metric-icon cyan">âš¡</span><label>DEVICE</label><strong id="device">â€”</strong><small id="deviceDetail">Backend hardware</small></article>
+      <article class="metric"><span class="metric-icon green">âœ“</span><label>CHECKPOINT</label><strong id="checkpoint">â€”</strong><small id="checkpointDetail">Status from backend</small></article>
+    </section>
+
+    <section class="control-grid">
+      <article class="panel run-panel">
+        <div class="panel-head">
+          <div><span class="section-kicker">TRAINING CONTROL</span><h2>Run Configuration</h2></div>
+          <span class="badge" id="configBadge">Backend</span>
+        </div>
+        <div class="config-grid" id="configGrid"><div class="empty">Waiting for training configurationâ€¦</div></div>
+        <div class="control-actions">
+          <button class="primary" id="startRun">â–¶ Start Training</button>
+          <button class="secondary" id="stopRun">â–  Stop Run</button>
+        </div>
+        <div class="command-status" id="commandStatus">Training actions are disabled until the backend exposes the corresponding endpoint.</div>
+      </article>
+
+      <article class="panel progress-panel">
+        <div class="panel-head">
+          <div><span class="section-kicker">CURRENT OPERATION</span><h2>Training Progress</h2></div>
+          <strong class="progress-number" id="progressPct">â€”</strong>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-meta"><span id="progressLabel">No active run</span><span id="eta">ETA â€”</span></div>
+        <div class="phase-list" id="phaseList"><div class="empty">Waiting for backend progressâ€¦</div></div>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel chart-panel">
+        <div class="panel-head"><div><span class="section-kicker">CONVERGENCE</span><h2>Accuracy by Epoch</h2></div><span class="unit">percent</span></div>
+        <div class="chart" id="accuracyChart"><div class="empty">Training history will be plotted from the backend.</div></div>
+      </article>
+      <article class="panel chart-panel">
+        <div class="panel-head"><div><span class="section-kicker">OPTIMIZATION</span><h2>Loss by Epoch</h2></div><span class="unit">loss</span></div>
+        <div class="chart" id="lossChart"><div class="empty">Training history will be plotted from the backend.</div></div>
+      </article>
+    </section>
+
+    <section class="content-grid lower">
+      <article class="panel model-panel">
+        <div class="panel-head"><div><span class="section-kicker">MODEL REGISTRY</span><h2>Available Models</h2></div><span class="badge">Backend</span></div>
+        <div class="model-list" id="modelList"><div class="empty">Waiting for registered modelsâ€¦</div></div>
+      </article>
+      <article class="panel checkpoint-panel">
+        <div class="panel-head"><div><span class="section-kicker">ARTIFACT CONTROL</span><h2>Checkpoints</h2></div><span class="unit">latest</span></div>
+        <div class="checkpoint-list" id="checkpointList"><div class="empty">Waiting for checkpoint metadataâ€¦</div></div>
+      </article>
+    </section>
+
+    <section class="panel log-panel">
+      <div class="panel-head"><div><span class="section-kicker">TRAINING TELEMETRY</span><h2>Live Run Log</h2></div><button class="clear-log" id="clearLog">Clear view</button></div>
+      <div class="log-window" id="logWindow"><div class="log-empty">No telemetry received from backend.</div></div>
+    </section>
+
+    <footer><span>AMCShield Â© 2026</span><span>Medicaps University Â· Computer Science & Engineering</span><span>Secure AI Research Console</span></footer>
+  </main>
+</div>
+<script src="nav-admin.js" defer></script>
+<script src="model-training.js"></script>
+</body>
+</html>
+
+==============================================================================
+  8. MODEL TRAINING JAVASCRIPT
+==============================================================================
+
+--- .\frontend\AMCShield_All_In_One\model-training.js ---
+/*
+ * AMCShield Model Training page.
+ * Training values and charts are fetched from FastAPI.
+ * No experimental metrics are hardcoded in the UI.
+ */
+const API_BASE_URL="/api";
+const $=id=>document.getElementById(id);
+
+async function api(path, options={}){
+  const r=await fetch(API_BASE_URL+path,{...options,headers:{Accept:"application/json",...(options.headers||{})}});
+  if(!r.ok){let d="";try{const x=await r.json();d=x.detail||x.message||""}catch(_){}throw new Error(d||`HTTP ${r.status}`)}
+  return r.json();
+}
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+const num=(x,d=0)=>Number.isFinite(Number(x))?Number(x):d;
+const fmt=x=>Number.isFinite(Number(x))?new Intl.NumberFormat("en-IN",{maximumFractionDigits:2}).format(Number(x)):"â€”";
+const pct=x=>Number.isFinite(Number(x))?`${Number(x).toFixed(2)}%`:"â€”";
+
+function setAPI(ok,msg){
+  $("apiStatus").classList.toggle("online",ok);$("apiStatus").classList.toggle("offline",!ok);
+  $("apiText").textContent=ok?"API ONLINE":"API OFFLINE";$("apiDetail").textContent=msg;
+}
+function setMetric(id,value,detail){$(id).textContent=value??"â€”";if(detail!==undefined)$(id+"Detail") && ($(id+"Detail").textContent=detail)}
+
+function renderOverview(d){
+  const x=d.run||d;
+  $("activeRun").textContent=x.name||x.run_name||x.id||"â€”";
+  $("activeRunDetail").textContent=x.status||"Training run";
+  $("epoch").textContent=x.epoch!==undefined?fmt(x.epoch):"â€”";
+  $("epochDetail").textContent=x.total_epochs!==undefined?`of ${fmt(x.total_epochs)} epochs`:"Current epoch";
+  $("trainAcc").textContent=pct(x.train_accuracy);
+  $("trainLoss").textContent=`Loss: ${x.train_loss!==undefined?Number(x.train_loss).toFixed(4):"â€”"}`;
+  $("valAcc").textContent=pct(x.val_accuracy??x.validation_accuracy);
+  $("valLoss").textContent=`Loss: ${x.val_loss!==undefined?Number(x.val_loss).toFixed(4):"â€”"}`;
+  $("device").textContent=x.device||"â€”";$("deviceDetail").textContent=x.gpu_name||"Backend hardware";
+  $("checkpoint").textContent=x.checkpoint_status||x.checkpoint_name||"â€”";
+  $("checkpointDetail").textContent=x.checkpoint_path||"Checkpoint metadata";
+  $("engineStatus").textContent=x.status||"Backend";
+  $("runStateText").textContent=(x.status||"READY").toUpperCase();
+  $("runStateDetail").textContent=x.message||"Training backend";
+  const p=Math.max(0,Math.min(100,num(x.progress_percent)));
+  $("progressPct").textContent=x.progress_percent!==undefined?pct(p):"â€”";
+  $("progressFill").style.width=`${p}%`;
+  $("progressLabel").textContent=x.phase||x.status||"No active run";
+  $("eta").textContent=x.eta||"ETA â€”";
+}
+
+function renderConfig(d){
+  const x=d.config||d;const entries=[
+    ["Dataset",x.dataset?.name??x.dataset_name],["Batch size",x.batch_size],
+    ["Epochs",x.epochs],["Learning rate",x.learning_rate],
+    ["Optimizer",x.optimizer],["Loss function",x.loss_function],
+    ["Adversarial ratio",x.adv_train_ratio],["FGSM Îµ",x.epsilon?.fgsm],
+    ["PGD Îµ",x.epsilon?.pgd],["PGD steps",x.pgd_steps??x.steps],
+    ["Input shape",x.input_shape],["Classes",x.num_classes]
+  ].filter(a=>a[1]!==undefined&&a[1]!==null);
+  const box=$("configGrid");box.innerHTML="";
+  if(!entries.length){box.innerHTML='<div class="empty">No training configuration returned by backend.</div>';return}
+  entries.forEach(([k,v])=>{const e=document.createElement("div");e.className="config";e.innerHTML=`<span>${esc(k)}</span><strong>${esc(typeof v==="object"?JSON.stringify(v):v)}</strong>`;box.appendChild(e)});
+  $("configBadge").textContent=x.source||"Backend";
+}
+
+function renderProgress(d){
+  const rows=Array.isArray(d)?d:(d.phases||d.data||[]);
+  const box=$("phaseList");box.innerHTML="";
+  if(!rows.length){box.innerHTML='<div class="empty">No training phases returned by backend.</div>';return}
+  rows.forEach(x=>{const p=Math.max(0,Math.min(100,num(x.progress_percent??x.progress)));const e=document.createElement("div");e.className="phase";e.innerHTML=`<label>${esc(x.name??x.phase)}</label><div class="phase-track"><div class="phase-fill" style="width:${p}%"></div></div><span class="phase-value">${p.toFixed(1)}%</span>`;box.appendChild(e)})
+}
+
+function chartSVG(rows,type){
+  const arr=rows.map(x=>({epoch:num(x.epoch),a:num(x.train_accuracy),v:num(x.val_accuracy),l:num(x.train_loss),vl:num(x.val_loss)})).filter(x=>x.epoch||x.a||x.v||x.l||x.vl);
+  if(!arr.length)return null;
+  const W=900,H=260,pad={l:40,r:18,t:25,b:30};
+  const vals=type==="accuracy"?arr.flatMap(x=>[x.a,x.v]).filter(Number.isFinite):arr.flatMap(x=>[x.l,x.vl]).filter(Number.isFinite);
+  const min=Math.min(...vals),max=Math.max(...vals),range=(max-min)||1;
+  const ex=Math.min(...arr.map(x=>x.epoch)),ex2=Math.max(...arr.map(x=>x.epoch)),er=(ex2-ex)||1;
+  const x=e=>pad.l+(e-ex)/er*(W-pad.l-pad.r), y=v=>H-pad.b-(v-min)/range*(H-pad.t-pad.b);
+  const path=k=>arr.filter(z=>Number.isFinite(z[k])).map((z,i)=>`${i?"L":"M"}${x(z.epoch).toFixed(1)},${y(z[k]).toFixed(1)}`).join(" ");
+  let lines="";
+  for(let i=0;i<5;i++){const gy=pad.t+i*(H-pad.t-pad.b)/4;lines+=`<line class="svg-grid" x1="${pad.l}" x2="${W-pad.r}" y1="${gy}" y2="${gy}"/>`}
+  const p1=type==="accuracy"?path("a"):path("l"),p2=type==="accuracy"?path("v"):path("vl");
+  const legend=type==="accuracy"?`<div class="legend"><span><i class="cyan"></i>Train</span><span><i class="gold"></i>Validation</span></div>`:`<div class="legend"><span><i class="cyan"></i>Train</span><span><i class="gold"></i>Validation</span></div>`;
+  return `${legend}<svg class="svg-chart" viewBox="0 0 ${W} ${H}">${lines}<path class="line-train" d="${p1}"/><path class="line-val" style="stroke:var(--gold)" d="${p2}"/></svg>`;
+}
+function renderHistory(d){
+  const rows=Array.isArray(d)?d:(d.history||d.data||[]);
+  const a=chartSVG(rows,"accuracy"),l=chartSVG(rows,"loss");
+  $("accuracyChart").innerHTML=a||'<div class="empty">No accuracy history returned by backend.</div>';
+  $("lossChart").innerHTML=l||'<div class="empty">No loss history returned by backend.</div>';
+}
+
+function renderModels(d){
+  const rows=Array.isArray(d)?d:(d.models||d.data||[]);const box=$("modelList");box.innerHTML="";
+  if(!rows.length){box.innerHTML='<div class="empty">No model registry data returned by backend.</div>';return}
+  rows.forEach(x=>{const e=document.createElement("div");e.className="model-row";e.innerHTML=`<div><strong>${esc(x.name??x.model_name)}</strong><small>${esc(x.architecture??x.description??"Model metadata")}</small></div><span class="model-tag ${x.best?'best':''}">${esc(x.status??(x.best?"BEST":"REGISTERED"))}</span>`;box.appendChild(e)})
+}
+function renderCheckpoints(d){
+  const rows=Array.isArray(d)?d:(d.checkpoints||d.data||[]);const box=$("checkpointList");box.innerHTML="";
+  if(!rows.length){box.innerHTML='<div class="empty">No checkpoint metadata returned by backend.</div>';return}
+  rows.forEach(x=>{const e=document.createElement("div");e.className="checkpoint-row";e.innerHTML=`<div><strong>${esc(x.name??x.filename??"Checkpoint")}</strong><small>${esc(x.path??x.created_at??"Artifact metadata")}</small></div><small>${esc(x.status??"AVAILABLE")}</small>`;box.appendChild(e)})
+}
+function renderLogs(d){
+  const rows=Array.isArray(d)?d:(d.logs||d.data||[]);const box=$("logWindow");box.innerHTML="";
+  if(!rows.length){box.innerHTML='<div class="log-empty">No telemetry received from backend.</div>';return}
+  rows.slice(-250).forEach(x=>{const e=document.createElement("div");e.className="log-line";e.innerHTML=`<span class="time">[${esc(x.time??x.timestamp??"â€”")}]</span> <span class="${x.level==="error"?"":"info"}">${esc(x.message??x.text??"")}</span>`;box.appendChild(e)});
+  box.scrollTop=box.scrollHeight;
+}
+
+async function load(){
+  $("refresh").disabled=true;
+  const endpoints=[
+    ["/training/overview",renderOverview],
+    ["/training/config",renderConfig],
+    ["/training/progress",renderProgress],
+    ["/training/history",renderHistory],
+    ["/training/models",renderModels],
+    ["/training/checkpoints",renderCheckpoints],
+    ["/training/logs",renderLogs]
+  ];
+  let ok=0;
+  for(const [path,fn] of endpoints){try{fn(await api(path));ok++}catch(_){/* each panel reports backend absence */}}
+  setAPI(ok>0,ok?`${ok}/${endpoints.length} training endpoints responding`:"Training endpoints unavailable");
+  $("updated").textContent=ok?`Updated ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"Not loaded";
+  $("refresh").disabled=false;
+}
+
+async function command(path,label){
+  $("commandStatus").textContent=`${label} request sentâ€¦`;
+  try{const d=await api(path,{method:"POST"});$("commandStatus").textContent=d.message||`${label} request accepted by backend.`;load()}catch(e){$("commandStatus").textContent=`${label} unavailable: ${e.message}`}
+}
+$("startRun").addEventListener("click",()=>command("/training/start","Start training"));
+$("stopRun").addEventListener("click",()=>command("/training/stop","Stop training"));
+$("refresh").addEventListener("click",load);
+$("clearLog").addEventListener("click",()=>$("logWindow").innerHTML='<div class="log-empty">Log view cleared. Backend telemetry remains unchanged.</div>');
+$("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").style.display="block"});
+$("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").style.display="none"});
+$("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});
+load();
+
+==============================================================================
+  9. TRAINING API REFERENCES
+==============================================================================
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\about.js:3: async function api(path){const r=await fetch(API_BASE_URL+path,{headers:{Accept:"application/json"}});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json()}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\about.js:14: function renderModels(d){const a=Array.isArray(d)?d:(d.models||d.data||[]),box=$("modelList");box.innerHTML=a.length?a.map(x=>`<div class="model"><div class="model-top"><strong>${esc(x.name??x.model)}</strong><span>${esc(x.parameters??x.parameter_count??"MODEL")}</span></div><p>${esc(x.description??x.architecture??"Backend model metadata.")}</p></div>`).join(""):'<div class="empty">No model metadata returned.</div>'}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\about.js:21: ["/project/overview",d=>{const x=d.project||d||{};$("status").textContent=text(x.status);$("classes").textContent=text(x.class_count??x.num_classes);$("snr").textContent=x.snr_min!==undefined?`${x.snr_min} to ${x.snr_max} dB`:"—";$("models").textContent=text(x.model_count);$("source").textContent=text(x.source??"Backend");$("heroDescription").textContent=text(x.description??$("heroDescription").textContent)}],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\about.js:24: ["/project/models",renderModels],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\about.js:38: $("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js:105: const response = await fetch("/api/auth/csrf", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js:140: const response = await fetch(
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js:818: "/api/admin/messages"
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js:909: `/api/admin/messages/${state.selectedId}/approve`,
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js:1035: `/api/admin/messages/${state.selectedId}/close`,
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js:1144: `/api/admin/messages/${state.selectedId}/resend`,
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js:1223: "/api/auth/me"
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\admin.js:1408: "/api/auth/logout",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js:14: const r=await fetch(API_BASE_URL+path,{...options,headers:{"Content-Type":"application/json",Accept:"application/json",...(options.headers||{})}});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js:23: $("activeAttack").textContent=x.name||x.attack||x.method||"—";$("activeAttackDetail").textContent=x.target_model||x.model||"Target model";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js:30: const p=Math.max(0,Math.min(100,num(x.progress_percent)??0));$("progressPct").textContent=x.progress_percent!==undefined?pct(p):"—";$("progressFill").style.width=`${p}%`;
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js:31: $("progressLabel").textContent=x.phase||x.status||"No active attack";$("eta").textContent=x.eta||"ETA —";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js:36: fillSelect("targetModel",x.models||x.target_models||[],"Select target model", "name");
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js:76: if(!rows.length){box.innerHTML='<div class="log-empty">No attack telemetry received.</div>';return}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js:89: const body={target_model:$("targetModel").value,attack:$("attackMethod").value,epsilon:num($("epsilonInput").value),steps:num($("stepsInput").value),snr:$("snrInput").value===""?null:num($("snrInput").value),samples_per_snr:num($("sampleInput").value)};
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\adversarial-attacks.js:98: $("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\auth-guard.js:3: const response = await fetch("/api/auth/me", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js:59: const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js:1049: await window.AMCShieldSecurity.fetch(
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js:1050: "/api/auth/logout",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dashboard.js:1063: const response = await fetch("/api/auth/me", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dataset.js:12: const request = window.AMCShieldSecurity?.fetch || fetch;
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dataset.js:141: ["Train",x.train??x.train_size??x.training],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\dataset.js:240: $("logout").addEventListener("click",async()=>{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});location.href="/"});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\evaluation-results.js:15: const r=await fetch(API_BASE_URL+path,{...options,headers:{Accept:"application/json",...(options.headers||{})}});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\evaluation-results.js:35: fillSelect("modelFilter",x.models||[],"All models");
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\evaluation-results.js:44: if(!a.length){box.innerHTML='<div class="empty">No model comparison data returned by backend.</div>';return}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\evaluation-results.js:93: const attack=$("attackFilter").value,snr=$("snrFilter").value,model=$("modelFilter").value;
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\evaluation-results.js:94: filteredRows=allRows.filter(x=>(!attack||(x.attack??x.method)===attack)&&(!snr||String(x.snr)===String(snr))&&(!model||String(x.model??x.model_name??"")===String(model)));
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\evaluation-results.js:97: function reset(){ $("attackFilter").value="";$("snrFilter").value="";$("modelFilter").value="";filteredRows=[...allRows];renderTable(filteredRows)}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\evaluation-results.js:113: $("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:8: *   GET  /api/invitations/validate?token=<token>
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:11: *   POST /api/invitations/activate
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:20: const VALIDATE_URL = "/api/account/invite/validate";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:21: const COMPLETE_URL = "/api/account/invite/complete";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:64: window.history.replaceState({}, document.title, cleanUrl);
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:124: const response = await fetch("/api/auth/csrf", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:140: // immediately so it is not retained in browser history.
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:143: window.history.replaceState({}, document.title, cleanUrl);
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:155: const response = await fetch(
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\invite.js:273: const response = await AMCShieldSecurity.fetch(COMPLETE_URL, {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js:16: const AUTH_ENDPOINT = "/api/auth/login";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js:90: const response = await fetch(AUTH_ENDPOINT, {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js:129: window.location.href = "/api/auth/github/login";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js:155: window.history.replaceState({}, document.title, window.location.pathname);
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\login.js:262: const response = await AMCShieldSecurity.fetch("/api/auth/contact-admin",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:45: desc: "The dataset is split once into non-overlapping train, validation, and test partitions. The model is trained on train, hyper-parameters are tuned on val, and the final number is reported on test — which must never be touched until the very end.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:59: desc: "Data is divided into K equal folds. The model trains K times; each fold serves as the test set once. The final score is the average over all K runs. Reduces variance compared with a single holdout split.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:62: { text: "K times the training cost", type: "bad" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:90: { text: "N training runs — infeasible for large datasets", type: "bad" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:101: desc: "Respects temporal ordering: training always precedes the test window. Used when data has time dependencies (stock prices, sensor streams). Prevents 'look-ahead bias' that would occur in random splits.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:125: name: "Baseline Model Comparison",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:126: alias: "Null Model, Majority Classifier, Random Baseline",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:127: formula: "Baseline accuracy = max class frequency\n\nGain = Model_acc − Baseline_acc",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:128: desc: "Before claiming a model is good, compare it to the simplest possible predictor: always predicting the majority class. If your model barely beats the baseline, it has not learned much.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:141: formula: "Traffic split 50/50 between Model A and Model B.\nStatistical significance test on outcome metric.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:142: desc: "Live traffic is randomly routed to two model versions; real user interactions determine which performs better. The gold standard for production ML deployment decisions.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:146: { text: "Risk of exposing users to a weaker model during the test", type: "bad" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:155: formula: "Real traffic → Model A (live)\n               ↘ Model B (shadow, logged only)",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:156: desc: "The shadow model receives a copy of real traffic and makes predictions, but its output is never shown to users. Logs are compared offline. Zero risk while testing a new model in production conditions.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:158: { text: "Safe: users never see shadow model output", type: "good" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:162: usage: "Relevant for a future AMCShield API deployment where the robust model runs in shadow mode alongside the baseline to compare real-time classification quality.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:174: desc: "An N×N table showing how often each true class was predicted as each other class. The diagonal = correct predictions. Off-diagonal cells reveal which classes the model confuses. The foundation from which all other classification metrics derive.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:176: { text: "High diagonal values → good model", type: "good" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:188: desc: "The fraction of all predictions that are correct. The most intuitive metric but misleading when classes are imbalanced — a model that always predicts the majority class can have high accuracy while being useless.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:195: usage: "Primary metric for AMCShield model selection (best checkpoint by clean val accuracy). Per-SNR accuracy plotted in the generalization gap analysis.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:203: desc: "Of all the samples the model PREDICTED as positive, what fraction were truly positive? High precision = few false alarms. Important when false positives are costly.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:209: usage: "Computed per-class (macro/weighted) in evaluate_metrics.py. Low-SNR classes have poor precision because the model guesses randomly.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:217: desc: "Of all truly positive samples, what fraction did the model correctly detect? High recall = few missed detections. Important when false negatives are costly.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:223: usage: "In adversarial settings, recall drops dramatically under attacks — the model 'misses' the correct class. Used alongside precision in the per-class analysis.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:231: desc: "Of all truly negative samples, what fraction did the model correctly label as negative? The complement of the false positive rate. High specificity = few false alarms on negative examples.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:234: { text: "High value → model correctly rejects negatives", type: "good" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:273: desc: "Measures the model's ability to discriminate between positive and negative classes across all possible thresholds. Threshold-independent. 0.5 = random classifier; 1.0 = perfect.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:301: desc: "Measures the quality of the probability estimates, not just the hard predictions. Heavily penalizes confident wrong answers. Lower is better. This is what PyTorch's CrossEntropyLoss minimizes during training.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:306: { text: "AMCShield uses CE loss as training objective", type: "info" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:308: usage: "The training and validation loss curves in AMCShield are cross-entropy. Early stopping uses validation loss as a signal (patience 7 epochs).",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:316: desc: "A correlation coefficient between the actual and predicted binary labels. MCC is considered the most informative single metric for binary classification: it only gives a high score if the model performs well on all four confusion-matrix quadrants, even when classes are imbalanced.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:319: { text: "MCC > 0.7 → strong model", type: "good" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:323: usage: "Computed by evaluate_metrics.py using sklearn. MCC will be low at low SNR (model at chance level) and high at high SNR. Adversarial attacks collapse MCC toward 0.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:402: desc: "The proportion of variance in the target explained by the model. 1.0 = perfect; 0.0 = no better than the mean baseline; negative = worse than predicting the mean.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:406: { text: "R² < 0 → model is worse than the mean baseline", type: "bad" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:416: desc: "Penalizes R² for adding extra features that do not genuinely improve the model. R² always increases with more features; Adjusted R² can decrease if irrelevant features are added.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:419: { text: "Better than R² for model selection with many features", type: "good" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:600: usage: "In AMCShield, top-1 accuracy is essentially P@1. Top-5 accuracy could be computed if the report needs it (model returns a ranked list of modulation classes).",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:625: desc: "How long it takes the model to return a prediction for a single input. Critical for real-time applications. Report p99 (worst 1%) not just the mean, since tail latency matters for user experience.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:631: usage: "The FastAPI backend wraps AMCShield's classifier. Each HTTP request triggers a forward pass. Profiling with time.perf_counter() around the model call will give per-batch latency. Not yet benchmarked.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:652: desc: "The fraction of time the processor is performing useful computation. Low GPU utilization often means the data pipeline (CPU data loading) is the bottleneck, not the model.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:665: formula: "VRAM = model params (fp32) + activations + gradients + optimizer state\n\nparam bytes = N_params × 4  (fp32)",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:666: desc: "Total RAM or GPU VRAM consumed during training or inference. Important for deciding whether a model fits on the target hardware. Mixed precision (fp16) roughly halves VRAM.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:670: { text: "During training, batch × 2 × 1024 × 4 bytes = activations per layer", type: "info" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:672: usage: "AMCShield models are small by modern standards. Training a single batch of 128 × 2 × 1024 fp32 = ~1 MB input tensor. No OOM issues reported.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:675: id: "model-size",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:677: name: "Model Size on Disk",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:678: alias: "Checkpoint Size, .pt File Size",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:679: formula: "File size = params + buffers + optimizer state (if full checkpoint)\n\nInference-only: strip optimizer state → smaller file",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:680: desc: "The file size of the saved model checkpoint. Affects deployment (edge devices, download time). The full checkpoint includes optimizer state; a 'inference-only' export is smaller.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:682: { text: "BaselineCNN full checkpoint ≈ 13-15 MB", type: "info" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:686: usage: "Checkpoints live in checkpoints/ directory. Use torch.save(model.state_dict(), 'inference.pt') to strip optimizer state for a deployment build.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:694: desc: "Data drift occurs when the statistical properties of the input distribution change between training and production. Concept drift is when the relationship between inputs and labels changes. Both cause model performance to degrade silently.",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:697: { text: "Models degrade silently — scheduled re-evaluation is essential", type: "bad" },
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:700: usage: "RadioML 2018.01A is static — no drift during training. In a real SDR deployment, the RF channel characteristics and interference environment would change, requiring drift monitoring. Currently out of scope (listed as future work in AMCShield).",
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:895: fetch("/api/health", { credentials: "include" })
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\metrics-reference.js:938: fetch("/api/auth/logout", { method: "POST", credentials: "include" })
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:2: * AMCShield Model Training page.
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:3: * Training values and charts are fetched from FastAPI.
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:10: const r=await fetch(API_BASE_URL+path,{...options,headers:{Accept:"application/json",...(options.headers||{})}});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:28: $("activeRunDetail").textContent=x.status||"Training run";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:36: $("checkpoint").textContent=x.checkpoint_status||x.checkpoint_name||"—";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:37: $("checkpointDetail").textContent=x.checkpoint_path||"Checkpoint metadata";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:40: $("runStateDetail").textContent=x.message||"Training backend";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:41: const p=Math.max(0,Math.min(100,num(x.progress_percent)));
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:42: $("progressPct").textContent=x.progress_percent!==undefined?pct(p):"—";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:43: $("progressFill").style.width=`${p}%`;
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:44: $("progressLabel").textContent=x.phase||x.status||"No active run";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:58: if(!entries.length){box.innerHTML='<div class="empty">No training configuration returned by backend.</div>';return}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:63: function renderProgress(d){
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:66: if(!rows.length){box.innerHTML='<div class="empty">No training phases returned by backend.</div>';return}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:67: rows.forEach(x=>{const p=Math.max(0,Math.min(100,num(x.progress_percent??x.progress)));const e=document.createElement("div");e.className="phase";e.innerHTML=`<label>${esc(x.name??x.phase)}</label><div class="phase-track"><div class="phase-fill" style="width:${p}%"></div></div><span class="phase-value">${p.toFixed(1)}%</span>`;box.appendChild(e)})
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:85: function renderHistory(d){
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:86: const rows=Array.isArray(d)?d:(d.history||d.data||[]);
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:88: $("accuracyChart").innerHTML=a||'<div class="empty">No accuracy history returned by backend.</div>';
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:89: $("lossChart").innerHTML=l||'<div class="empty">No loss history returned by backend.</div>';
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:92: function renderModels(d){
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:93: const rows=Array.isArray(d)?d:(d.models||d.data||[]);const box=$("modelList");box.innerHTML="";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:94: if(!rows.length){box.innerHTML='<div class="empty">No model registry data returned by backend.</div>';return}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:95: rows.forEach(x=>{const e=document.createElement("div");e.className="model-row";e.innerHTML=`<div><strong>${esc(x.name??x.model_name)}</strong><small>${esc(x.architecture??x.description??"Model metadata")}</small></div><span class="model-tag ${x.best?'best':''}">${esc(x.status??(x.best?"BEST":"REGISTERED"))}</span>`;box.appendChild(e)})
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:97: function renderCheckpoints(d){
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:98: const rows=Array.isArray(d)?d:(d.checkpoints||d.data||[]);const box=$("checkpointList");box.innerHTML="";
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:99: if(!rows.length){box.innerHTML='<div class="empty">No checkpoint metadata returned by backend.</div>';return}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:100: rows.forEach(x=>{const e=document.createElement("div");e.className="checkpoint-row";e.innerHTML=`<div><strong>${esc(x.name??x.filename??"Checkpoint")}</strong><small>${esc(x.path??x.created_at??"Artifact metadata")}</small></div><small>${esc(x.status??"AVAILABLE")}</small>`;box.appendChild(e)})
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:104: if(!rows.length){box.innerHTML='<div class="log-empty">No telemetry received from backend.</div>';return}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:112: ["/training/overview",renderOverview],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:113: ["/training/config",renderConfig],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:114: ["/training/progress",renderProgress],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:115: ["/training/history",renderHistory],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:116: ["/training/models",renderModels],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:117: ["/training/checkpoints",renderCheckpoints],
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:118: ["/training/logs",renderLogs]
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:122: setAPI(ok>0,ok?`${ok}/${endpoints.length} training endpoints responding`:"Training endpoints unavailable");
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:131: $("startRun").addEventListener("click",()=>command("/training/start","Start training"));
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:132: $("stopRun").addEventListener("click",()=>command("/training/stop","Stop training"));
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:134: $("clearLog").addEventListener("click",()=>$("logWindow").innerHTML='<div class="log-empty">Log view cleared. Backend telemetry remains unchanged.</div>');
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\model-training.js:137: $("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\nav-admin.js:7: const response = await fetch("/api/auth/me", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\reports.js:4: async function api(path,opts={}){const r=await fetch(API_BASE_URL+path,{...opts,headers:{Accept:"application/json","Content-Type":"application/json",...(opts.headers||{})}});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.status===204?{}:r.json()}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\reports.js:51: $("menu").addEventListener("click",()=>{$("sidebar").classList.add("open");$("overlay").classList.add("show")});$("overlay").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("overlay").classList.remove("show")});$("logout").addEventListener("click",async()=>{try{await AMCShieldSecurity.fetch("/api/auth/logout",{method:"POST"});}finally{location.href="/";}});load();
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js:4: * All authenticated state-changing requests should use amcFetch().
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js:21: csrfPromise = fetch("/api/auth/csrf", {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js:50: async function amcFetch(url, options = {}) {
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js:67: let response = await fetch(url, requestOptions);
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js:74: response = await fetch(url, requestOptions);
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js:83: return fetch(url, requestOptions);
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\security.js:86: window.AMCShieldSecurity = Object.freeze({
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\visualization.js:4: async function api(path){const r=await fetch(API_BASE_URL+path,{headers:{Accept:"application/json"}});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json()}
+D:\MediCaps University\7 SEM\Project 1\AMCShield\frontend\AMCShield_All_In_One\visualization.js:10: let ok=0,summary,filters,acc,asr,gap,classes,models,findings;
+
+==============================================================================
+  10. TRAINING SCRIPT INVENTORY
+==============================================================================
+
+FullName                                                                              Length LastWriteTime
+--------                                                                              ------ -------------
+D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\config.py                      3309 01-10-2026 00:06:57
+D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\database\models.py             5234 01-10-2026 00:06:59
+D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\training.py             673 01-10-2026 00:06:59
+D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\services\training_service.py   1011 01-10-2026 00:06:59
+D:\MediCaps University\7 SEM\Project 1\AMCShield\configs\config.yaml                    3104 14-11-2026 19:09:04
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_baseline.py                  8299 27-09-2026 01:06:45
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_robust.py                     626 27-09-2026 01:06:45
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_surrogate.py                 7921 27-09-2026 01:06:45
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_baseline_attacks.py           23873 27-09-2026 01:06:45
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_robust_blackbox.py            19862 27-09-2026 01:06:45
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train.py                          30196 03-10-2026 16:25:22
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_baseline.py                  3323 27-09-2026 01:06:45
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_robust.py                    7252 10-11-2026 18:00:02
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_smoke_test.py                1281 27-09-2026 01:06:45
+D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_surrogate.py                12656 27-09-2026 01:06:45
+
+
+
+==============================================================================
+  11. TRAINING ENTRY POINTS AND CONFIG KEYS
+==============================================================================
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\config.py ---
+18: checkpoints_dir: Path = PROJECT_ROOT / "checkpoints"
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\routers\training.py ---
+11: service = TrainingService(settings.checkpoints_dir, settings.src_dir)
+21: @router.get("/checkpoints")
+22: def checkpoints():
+23: return {"success": True, "data": service.status()["checkpoints"]}
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\backend\services\training_service.py ---
+5: """Reports training/checkpoint state without starting training automatically."""
+7: def __init__(self, checkpoints_dir: Path, src_dir: Path):
+8: self.checkpoints_dir = Path(checkpoints_dir)
+12: checkpoints = []
+13: if self.checkpoints_dir.exists():
+14: for path in sorted(self.checkpoints_dir.rglob("*")):
+17: checkpoints.append({
+18: "name": str(path.relative_to(self.checkpoints_dir)),
+25: "checkpoint_count": len(checkpoints),
+26: "checkpoints": checkpoints,
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_baseline.py ---
+2: model_baseline.py
+29: support. RobustCNN (model_robust.py) subclasses this class,
+157: class BaselineCNN(nn.Module):
+267: if __name__ == "__main__":
+270: print("AMCShield Baseline CNN Test")
+277: model = BaselineCNN(
+351: print("BASELINE CNN TEST PASSED")
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_robust.py ---
+7: Same base architecture as BaselineCNN, trained via PGD-adversarial
+19: from src.model_baseline import BaselineCNN
+22: class RobustCNN(BaselineCNN):
+26: Same architecture as BaselineCNN.
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\model_surrogate.py ---
+6: The surrogate is intentionally architecturally different from BaselineCNN.
+9: 1. Attacker has query-only access to the baseline model.
+12: 4. Baseline/robust model weights are never copied.
+35: This is deliberately different from BaselineCNN:
+36: Baseline:
+44: No baseline or robust weights are loaded here.
+184: baseline_model,
+189: Collect query-response pairs from the baseline.
+198: - baseline gradients
+199: - baseline weights
+202: baseline_model:
+203: Trained BaselineCNN.
+210: Maximum number of baseline queries.
+217: Labels predicted by the baseline.
+280: # Baseline inference
+284: baseline_model.parameters()
+287: baseline_model.eval()
+305: logits = baseline_model(
+333: if __name__ == "__main__":
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_baseline_attacks.py ---
+1: # src/run_baseline_attacks.py
+4: AMCShield - Baseline Attack Evaluation
+6: Evaluates the already-trained baseline model against:
+15: - Does NOT retrain the baseline.
+16: - Loads checkpoints/baseline_best.pt only.
+30: from torch.utils.data import DataLoader, TensorDataset
+39: from src.data_loader import create_dataloaders
+40: from src.model_baseline import BaselineCNN
+42: from src.train import load_config
+53: BASELINE_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "baseline_best.pt"
+54: SURROGATE_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "surrogate_best.pt"
+80: # CHECKPOINT LOADING
+83: def load_baseline(config, device):
+85: Load the already-trained baseline model.
+90: if not BASELINE_CHECKPOINT.exists():
+92: f"Baseline checkpoint not found:\n{BASELINE_CHECKPOINT}"
+95: model = BaselineCNN(
+99: checkpoint = torch.load(
+100: BASELINE_CHECKPOINT,
+104: model.load_state_dict(checkpoint["model_state_dict"])
+107: print("✓ Baseline checkpoint loaded")
+108: print(f"  Checkpoint : {BASELINE_CHECKPOINT}")
+109: print(f"  Epoch      : {checkpoint.get('epoch', 'unknown')}")
+111: if "val_accuracy" in checkpoint:
+114: f"{checkpoint['val_accuracy'] * 100:.2f}%"
+120: def load_surrogate(config, device):
+122: Load the already-trained black-box surrogate.
+125: if not SURROGATE_CHECKPOINT.exists():
+127: f"Surrogate checkpoint not found:\n{SURROGATE_CHECKPOINT}"
+134: checkpoint = torch.load(
+135: SURROGATE_CHECKPOINT,
+139: model.load_state_dict(checkpoint["model_state_dict"])
+146: print("✓ Surrogate checkpoint loaded")
+149: f"{checkpoint['val_accuracy'] * 100:.2f}%"
+153: f"{checkpoint.get('query_budget', 'unknown')}"
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\run_robust_blackbox.py ---
+30: from src.data_loader import create_dataloaders
+31: from src.model_robust import RobustCNN
+43: ROBUST_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "robust_best.pt"
+44: SURROGATE_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "surrogate_best.pt"
+83: def load_config():
+84: """Load project configuration."""
+87: return yaml.safe_load(f)
+91: # MODEL LOADING
+94: def load_checkpoint(model, checkpoint_path):
+96: Load an already-trained checkpoint into a model.
+99: checkpoint = torch.load(
+100: checkpoint_path,
+104: # Handle standard AMCShield checkpoint format.
+105: if "model_state_dict" in checkpoint:
+106: model.load_state_dict(checkpoint["model_state_dict"])
+108: # Fallback if the checkpoint itself is a state_dict.
+109: model.load_state_dict(checkpoint)
+111: return checkpoint
+115: """Create and load robust target and surrogate models."""
+123: robust_model = RobustCNN(
+127: robust_checkpoint = load_checkpoint(
+129: ROBUST_CHECKPOINT,
+142: surrogate_checkpoint = load_checkpoint(
+144: SURROGATE_CHECKPOINT,
+152: robust_checkpoint,
+153: surrogate_checkpoint,
+179: _, _, test_loader = create_dataloaders(
+204: for batch in test_loader:
+207: # data_loader.py returns:
+546: # SAVE RESULTS
+549: def save_results(results):
+550: """Save CSV and a small metadata JSON."""
+571: f"✓ Saved: {OUTPUT_FILE}"
+606: "target_checkpoint": str(
+607: ROBUST_CHECKPOINT
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train.py ---
+7: Shared generic training loop for baseline and robust models.
+14: DataLoader returning:
+48: from torch.utils.data import DataLoader
+55: # Crash-safe checkpointing / resume helpers
+60: #     is saved regularly and training continues from the exact
+64: def _atomic_save(obj, path: Path) -> None:
+66: Write a checkpoint so that a power cut can never leave a
+77: torch.save(obj, tmp)
+92: def _safe_load(path: Path):
+94: Load a checkpoint; if the main file is missing/corrupt,
+96: Returns (checkpoint_dict_or_None, path_used_or_None).
+105: ckpt = torch.load(
+120: def _resume_path_for(checkpoint_file: Path) -> Path:
+121: """checkpoints/baseline_best.pt -> checkpoints/baseline_resume.pt"""
+122: stem = checkpoint_file.stem
+125: return checkpoint_file.with_name(f"{stem}_resume.pt")
+128: def _make_epoch_loader(
+129: train_loader,
+135: Build the training DataLoader for one epoch.
+141: dataset = train_loader.dataset
+142: batch_size = train_loader.batch_size
+152: order = order[start_batch * batch_size:]
+154: # Dedicated generator so the DataLoader never consumes the
+155: # global torch RNG (keeps resumed runs bit-for-bit identical).
+156: loader_generator = torch.Generator()
+157: loader_generator.manual_seed(int(seed) * 100003 + int(epoch))
+159: return DataLoader(
+163: generator=loader_generator,
+165: num_workers=train_loader.num_workers,
+166: pin_memory=train_loader.pin_memory,
+167: drop_last=train_loader.drop_last,
+201: data_loader,
+207: Evaluate model on a validation/test DataLoader.
+211: data_loader: Validation or test DataLoader.
+229: for batch_index, (signals, labels, _snr) in enumerate(data_loader):
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_baseline.py ---
+2: train_baseline.py
+3: AMCShield - Baseline CNN Training Runner
+6: Wire the RadioML 2018.01A DataLoaders, BaselineCNN, and generic
+7: train_model() function into a baseline training experiment.
+18: checkpoints/baseline_best.pt
+23: from src.data_loader import create_dataloaders
+24: from src.model_baseline import BaselineCNN
+25: from src.train import train_model, load_config
+28: def main():
+30: print("AMCShield Baseline CNN Training")
+36: config = load_config()
+53: # DataLoaders
+55: print("\nCreating DataLoaders...")
+57: train_loader, val_loader, test_loader = create_dataloaders(
+62: print(f"Train batches : {len(train_loader):,}")
+63: print(f"Val batches   : {len(val_loader):,}")
+64: print(f"Test batches  : {len(test_loader):,}")
+69: print("\nCreating BaselineCNN...")
+71: model = BaselineCNN(num_classes=num_classes)
+89: checkpoint_path = "checkpoints/baseline_best.pt"
+91: print("\nStarting baseline training...")
+92: print(f"Checkpoint: {checkpoint_path}")
+97: train_loader=train_loader,
+98: val_loader=val_loader,
+101: checkpoint_path=checkpoint_path,
+108: print("BASELINE TRAINING COMPLETED")
+110: print(f"Best checkpoint: {checkpoint_path}")
+113: if __name__ == "__main__":
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_robust.py ---
+7: Train RobustCNN using PGD adversarial training.
+22: checkpoints/robust_best.pt
+27: from src.data_loader import create_dataloaders
+28: from src.model_robust import RobustCNN
+29: from src.train import train_model, load_config
+34: def main():
+44: config = load_config()
+52: parser = argparse.ArgumentParser(
+53: description="PGD adversarial training of RobustCNN"
+55: parser.add_argument(
+57: help="start from this checkpoint (adversarial fine-tuning), "
+58: "e.g. checkpoints/baseline_best.pt",
+60: parser.add_argument("--epochs", type=int, default=None)
+61: parser.add_argument(
+65: parser.add_argument(
+69: parser.add_argument(
+73: parser.add_argument(
+156: # DataLoaders
+159: print("\nCreating DataLoaders...")
+161: train_loader, val_loader, test_loader = create_dataloaders(
+166: print(f"Train batches : {len(train_loader):,}")
+167: print(f"Val batches   : {len(val_loader):,}")
+168: print(f"Test batches  : {len(test_loader):,}")
+174: print("\nCreating RobustCNN...")
+176: model = RobustCNN(
+181: init_ckpt = torch.load(
+189: model.load_state_dict(init_state)
+231: checkpoint_path = (
+232: "checkpoints/robust_best.pt"
+237: f"Checkpoint: {checkpoint_path}"
+244: train_loader=train_loader,
+245: val_loader=val_loader,
+248: checkpoint_path=checkpoint_path,
+261: f"Best checkpoint: "
+262: f"{checkpoint_path}"
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_smoke_test.py ---
+7: from src.data_loader import create_dataloaders
+8: from src.model_baseline import BaselineCNN
+9: from src.train import train_model, load_config
+10: from src.utils import load_checkpoint
+13: def main():
+19: config = load_config()
+22: train_loader, val_loader, _ = create_dataloaders(
+27: model = BaselineCNN(
+35: train_loader=train_loader,
+36: val_loader=val_loader,
+38: checkpoint_path="checkpoints/smoke_test_train_model.pt",
+43: print("\nLoading checkpoint...")
+45: model = load_checkpoint(
+47: "checkpoints/smoke_test_train_model.pt",
+50: print("Checkpoint loaded successfully.")
+57: if __name__ == "__main__":
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\src\train_surrogate.py ---
+11: BaselineCNN query
+14: Baseline predicted labels
+26: from torch.utils.data import TensorDataset, DataLoader, random_split
+28: from src.data_loader import create_dataloaders
+29: from src.model_baseline import BaselineCNN
+34: from src.train import load_config
+41: BASELINE_CHECKPOINT = (
+42: "checkpoints/baseline_best.pt"
+45: SURROGATE_CHECKPOINT = (
+46: "checkpoints/surrogate_best.pt"
+76: train_loader,
+94: for batch_signals, _labels, _snr in train_loader:
+142: def main():
+148: config = load_config()
+203: # Load baseline
+208: "Loading trained baseline..."
+211: baseline = BaselineCNN(
+215: checkpoint = torch.load(
+216: BASELINE_CHECKPOINT,
+220: baseline.load_state_dict(
+221: checkpoint[
+226: baseline.to(device)
+227: baseline.eval()
+230: "✓ Baseline checkpoint loaded"
+233: if "epoch" in checkpoint:
+237: f"{checkpoint['epoch']}"
+240: if "val_accuracy" in checkpoint:
+244: f"{checkpoint['val_accuracy'] * 100:.2f}%"
+248: # Load training data
+253: "Creating training DataLoader..."
+256: train_loader, _, _ = create_dataloaders(
+266: train_loader=train_loader,
+271: # Query baseline
+276: "Querying baseline model..."
+281: baseline_model=baseline,
+
+==============================================================================
+  12. CONFIGURATION FILES
+==============================================================================
+
+--- D:\MediCaps University\7 SEM\Project 1\AMCShield\configs\config.yaml ---
+# ============================================================
+# AMCShield Configuration
+# RadioML 2018.01A
+# Central configuration for dataset, training, attacks,
+# adversarial training, and evaluation.
+# ============================================================
+
+seed: 42
+
+
+# ============================================================
+# Dataset
+# ============================================================
+
+dataset:
+  name: "RadioML2018.01A"
+
+  # Main HDF5 dataset
+  path: "data/raw/GOLD_XYZ_OSC.0001_1024.hdf5"
+
+  # Corrected modulation class mapping
+  classes_path: "data/raw/classes-fixed.json"
+
+  # Number of modulation classes
+  num_classes: 24
+
+  # RadioML 2018.01A signal format
+  # Raw format:    (1024, 2)
+  # PyTorch format: (2, 1024)
+  input_channels: 2
+  signal_length: 1024
+
+  # SNR values:
+  # -20, -18, -16, ..., 28, 30 dB
+  snr_range: [-20, 30]
+  snr_step: 2
+
+
+# ============================================================
+# Dataset Split
+# ============================================================
+
+# Stratified jointly by:
+#   1. Modulation class
+#   2. SNR
+#
+# Total = 100%
+
+train_size: 0.70
+val_size: 0.15
+test_size: 0.15
+
+
+# ============================================================
+# Training
+# ============================================================
+
+# Number of samples processed in one batch
+batch_size: 128
+
+# Maximum number of training epochs.
+# Early stopping may terminate training earlier.
+epochs: 60
+
+# Initial learning rate
+learning_rate: 0.001
+
+# AdamW decoupled weight decay
+weight_decay: 0.0001
+
+# CrossEntropyLoss label smoothing.
+# Helps reduce over-confident predictions, especially
+# for ambiguous modulation classes and low-SNR samples.
+label_smoothing: 0.1
+
+# Stop training if validation accuracy does not improve
+# for this many consecutive epochs.
+early_stopping_patience: 7
+
+
+# ============================================================
+# Adversarial Training
+# ============================================================
+
+# Fraction of each training batch that is adversarially
+# perturbed using PGD.
+#
+# 0.5 = 50% clean + 50% adversarial samples
+#
+# This allows the robust model to learn adversarial
+# robustness while maintaining clean-data performance.
+adv_train_ratio: 0.5
+
+
+# ============================================================
+# Attack Parameters
+# ============================================================
+
+# Perturbation budget for different attacks
+epsilon:
+
+==============================================================================
+  13. CHECKPOINT INVENTORY
+==============================================================================
+
+Folder: .\checkpoints
+
+FullName                                                                                           Length LastWriteTime
+--------                                                                                           ------ -------------
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\baseline_best.pt                    13227348 03-11-2026 13:46:05
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\baseline_resume.pt                  13243844 06-11-2026 11:48:27
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\robust_best.pt                      13226742 16-11-2026 04:25:41
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\robust_resume.pt                    13241890 16-11-2026 04:25:42
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\smoke_test_baseline.pt                722508 15-09-2026 16:31:54
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\smoke_test_train_model.pt            2157225 15-09-2026 20:10:35
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\surrogate_best.pt                    1380297 13-11-2026 11:21:53
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust\robust_best.pt            3611398 27-09-2026 16:40:53
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust\robust_epoch2_backup.pt   2157188 16-09-2026 15:49:25
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust\surrogate_5k_budget.pt    1380297 13-11-2026 11:03:44
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust\surrogate_best_OLD.pt     1380169 22-09-2026 14:09:26
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust_weakPGD\robust_best.pt   13226742 12-11-2026 13:12:17
+D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\old_robust_weakPGD\robust_resume.pt 13241890 12-11-2026 14:06:36
+
+
+
+Folder: .\results
+
+==============================================================================
+  14. TRAINING DEPENDENCIES
+==============================================================================
+
+
+Python version:
+
+
+PyTorch availability:
+
+
+==============================================================================
+  15. REGISTERED API ROUTES
+==============================================================================
+
+
+==============================================================================
+  16. TRAINING SECURITY REFERENCES
+==============================================================================
+
+--- .\backend\dependencies.py ---
+
+==============================================================================
+  17. AUDIT COMPLETE
+==============================================================================
+Read-only inspection finished.
+No training process was started.
+No checkpoint was opened or modified.
+No dataset contents were loaded.
+No authentication database or secret values were intentionally printed.
+Report file: D:\MediCaps University\7 SEM\Project 1\AMCShield\Reports\model_training_audit_20261118_042815.txt
+**********************
+Windows PowerShell transcript end
+End time: 20261118042837
+**********************

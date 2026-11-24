@@ -1,0 +1,88 @@
+﻿AMCSHIELD MASTER VALIDATION REPORT
+Generated: 2026-11-18 03:14:47 +05:30
+Project: D:\MediCaps University\7 SEM\Project 1\AMCShield
+API: http://127.0.0.1:8000
+Results directory: C:\AMCShield_Evaluation
+
+
+Check                                                      Status Details                                                                                         
+-----                                                      ------ -------                                                                                         
+Authenticated PowerShell session exists                    PASS   Requires existing $session WebRequestSession in this PowerShell window.                         
+Evaluation results directory exists                        PASS   C:\AMCShield_Evaluation                                                                         
+API health endpoint                                        PASS   status=ok; service=AMCShield API; version=1.0.0                                                 
+Authenticated identity endpoint                            PASS   authenticated=True; user=admin@amcshield.local                                                  
+API /api/dashboard/summary                                 PASS   success=True; dataPresent=True                                                                  
+API /api/dashboard/performance                             PASS   success=True; dataPresent=True                                                                  
+API /api/dashboard/attacks                                 PASS   success=True; dataPresent=True                                                                  
+API /api/dataset/metadata                                  PASS   success=True; dataPresent=True                                                                  
+API /api/dataset/overview                                  PASS   success=True; dataPresent=True                                                                  
+API /api/evaluation/summary                                PASS   success=True; dataPresent=True                                                                  
+API /api/evaluation/attack-summary                         PASS   success=True; dataPresent=True                                                                  
+API /api/attacks/overview                                  PASS   success=True; dataPresent=True                                                                  
+API /api/training/status                                   PASS   success=True; dataPresent=True                                                                  
+API /api/project/overview                                  PASS   success=True; dataPresent=True                                                                  
+Source file attack_results_per_snr.csv                     PASS   C:\AMCShield_Evaluation\attack_results_per_snr.csv                                              
+Source file clean_per_snr.csv                              PASS   C:\AMCShield_Evaluation\clean_per_snr.csv                                                       
+Source file generalization_gap.csv                         PASS   C:\AMCShield_Evaluation\generalization_gap.csv                                                  
+Source file metadata.json                                  PASS   C:\AMCShield_Evaluation\metadata.json                                                           
+Attack CSV row count                                       PASS   Rows=260; expected 260                                                                          
+Clean CSV row count                                        PASS   Rows=52; expected 52                                                                            
+Generalization-gap CSV row count                           PASS   Rows=130; expected 130                                                                          
+Results API vs attack CSV                                  PASS   API rows=260; compared=260; pass=260; fail=0                                                    
+Accuracy-by-SNR API vs clean CSV                           PASS   Compared=52; pass=52; fail=0                                                                    
+Generalization-gap API vs CSV                              PASS   Compared=26; pass=26; fail=0                                                                    
+Attack summary aggregation                                 PASS   Attacks=5; pass=5; fail=0; five metrics per attack                                              
+SNR coverage (-20 to +30, step 2)                          PASS   Unique baseline SNRs=26                                                                         
+Attack CSV key uniqueness                                  PASS   Duplicate/non-unique keys=0                                                                     
+Attack CSV finite metric values                            PASS   Rows with NaN/Infinity=0                                                                        
+L-infinity bound for bounded attacks                       PASS   Rows checked=208; epsilon=0.02; violations=0; CW excluded                                       
+Artifacts endpoint /api/evaluation/artifacts               PASS   exists=True; file_count=15                                                                      
+Artifacts endpoint /api/reports/artifacts                  PASS   exists=True; file_count=15                                                                      
+Artifacts endpoint /api/visualization/artifacts            PASS   exists=True; file_count=15                                                                      
+Evaluation filters coverage                                PASS   models=2; attacks=5; SNRs=26                                                                    
+Reproducibility seed references found                      PASS   Matches=46; static inspection only                                                              
+Determinism configuration references found                 PASS   Matches=1; static inspection only                                                               
+Metadata dataset identity                                  PASS   dataset=RadioML2018.01A                                                                         
+Metadata seed recorded                                     PASS   seed=42                                                                                         
+Metadata SNR coverage                                      PASS   levels=26                                                                                       
+Metadata sample-count arithmetic                           PASS   classes=24; per_class_per_snr=10; levels=26; calculated=6240; recorded=6240                     
+Metadata ASR definition documented                         PASS   n_flipped / n_originally_correct; originally-correct samples only                               
+Metadata attack list coverage                              PASS   attacks=5                                                                                       
+Metadata epsilon and iterative steps                       PASS   epsilon=0.02; steps=10                                                                          
+Checkpoint file baseline exists                            PASS   D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\baseline_best.pt                   
+Checkpoint SHA256 baseline                                 PASS   actual=d753cebf007f229a5b3a63cc9abe84eae72cdaa3710333727ef70ee9af5f4bd8; metadata=d753cebf007...
+Checkpoint file robust exists                              PASS   D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\robust_best.pt                     
+Checkpoint SHA256 robust                                   PASS   actual=e63669d5504aecfbf8a3f8fee2b227635fc96768fcd61b201feb38c5e22794bf; metadata=e63669d5504...
+Checkpoint file surrogate exists                           PASS   D:\MediCaps University\7 SEM\Project 1\AMCShield\checkpoints\surrogate_best.pt                  
+Checkpoint SHA256 surrogate                                PASS   actual=2944c0e57b5119a54dcf28ba093840393d35280ff687249d46ca19d312378643; metadata=2944c0e57b5...
+Checkpoint epoch matches metadata baseline                 PASS   checkpoint_epoch=baseline; config_seed=42                                                       
+Checkpoint validation accuracy matches metadata baseline   PASS   val_accuracy_match=True                                                                         
+Checkpoint core config baseline                            PASS   seed=42; dataset=RadioML2018.01A; classes=24; split_sum=1.0                                     
+Checkpoint epoch matches metadata robust                   PASS   checkpoint_epoch=robust; config_seed=42                                                         
+Checkpoint validation accuracy matches metadata robust     PASS   val_accuracy_match=True                                                                         
+Checkpoint core config robust                              PASS   seed=42; dataset=RadioML2018.01A; classes=24; split_sum=1.0                                     
+Checkpoint epoch matches metadata surrogate                PASS   checkpoint_epoch=surrogate; config_seed=42                                                      
+Checkpoint validation accuracy matches metadata surrogate  PASS   val_accuracy_match=True                                                                         
+Checkpoint core config surrogate                           PASS   seed=42; dataset=RadioML2018.01A; classes=24; split_sum=1.0                                     
+Robust/surrogate query-budget config agreement             PASS   baseline: config=5000, payload=; robust: config=50000, payload=; surrogate: config=50000, pay...
+Surrogate payload/config query-budget agreement            PASS   payload=50000; config=50000                                                                     
+Static RNG seed implementation references                  PASS   python=8; numpy=5; torch=10; cuda=6                                                             
+Static deterministic-runtime references                    FAIL   deterministic_algorithms=0; cudnn_deterministic=0; cudnn_benchmark=0                            
+Python source inventory                                    PASS   files_scanned=59                                                                                
+Dataset input exists: data/raw/GOLD_XYZ_OSC.0001_1024.hdf5 PASS   D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\GOLD_XYZ_OSC.0001_1024.hdf5           
+Dataset input exists: data/raw/classes-fixed.json          PASS   D:\MediCaps University\7 SEM\Project 1\AMCShield\data\raw\classes-fixed.json                    
+
+
+
+PASS: 63
+FAIL: 1
+
+WARNINGS:
+- Static seed/determinism searches do not prove bit-for-bit reproducibility; no training or evaluation rerun was performed.
+- Before publication, confirm metadata.json and checkpoint configs match the exact evaluated model versions.
+- Baseline checkpoint stores surrogate_query_budget=5000, while robust/surrogate store 50000; determine whether the baseline field is unused by black-box evaluation.
+- Static marker inventory: {"python_random_seed":8,"numpy_seed":5,"torch_seed":10,"cuda_seed":6,"deterministic_algorithms":0,"cudnn_deterministic":0,"cudnn_benchmark":0,"data_loader_generator":15,"worker_seed_init":0,"split_random_state":24}
+- Query-budget source references (inspect whether each is an active runtime use): src\model_surrogate.py:186 query_budget: int = 5000, | src\model_surrogate.py:209 query_budget: | src\model_surrogate.py:223 if query_budget <= 0: | src\model_surrogate.py:225 "query_budget must be greater than zero." | src\model_surrogate.py:265 int(query_budget), | src\run_baseline_attacks.py:153 f"{checkpoint.get('query_budget', 'unknown')}" | src\run_robust_blackbox.py:622 "query_budget": 5000, | src\run_robust_blackbox.py:749 if "query_budget" in surrogate_checkpoint: | src\run_robust_blackbox.py:752 f"{surrogate_checkpoint['query_budget']}" | src\train_surrogate.py:77 query_budget, | src\train_surrogate.py:97 query_budget - collected | src\train_surrogate.py:116 if collected >= query_budget: | src\train_surrogate.py:159 query_budget = int( | src\train_surrogate.py:161 "surrogate_query_budget", | src\train_surrogate.py:194 f"{query_budget:,}" | src\train_surrogate.py:267 query_budget=query_budget, | src\train_surrogate.py:283 query_budget=query_budget, | src\train_surrogate.py:562 "query_budget": ( | src\train_surrogate.py:563 query_budget
+- Static seed/determinism markers indicate code references only; they do not prove every RNG, CUDA kernel, worker, or data split is deterministic at runtime.
+- This is a read-only audit. It does not retrain models or rerun attacks/evaluation; bit-for-bit reproducibility requires a separately controlled rerun and comparison.
+- A differing surrogate_query_budget across checkpoint configs is reported as a consistency issue; inspect active black-box call sites before treating it as a methodological error.
